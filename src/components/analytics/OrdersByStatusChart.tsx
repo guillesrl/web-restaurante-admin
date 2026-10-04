@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useMemo } from "react";
 import {
   BarChart,
   Bar,
@@ -9,7 +9,7 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
-import { OrdersService } from "@/services/ordersService";
+import { Order } from "@/services/ordersService";
 import { DateRange, inRange } from "@/lib/dateRange";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -34,33 +34,22 @@ interface StatusCount {
   count: number;
 }
 
-export function OrdersByStatusChart({ range }: { range: DateRange }) {
-  const [data, setData] = useState<StatusCount[]>([]);
-  const [loading, setLoading] = useState(true);
+export function OrdersByStatusChart({ orders, range }: { orders: Order[]; range: DateRange }) {
+  const data = useMemo<StatusCount[]>(() => {
+    const counts: Record<string, number> = {};
+    orders
+      .filter((order) => inRange(order.created_at, range))
+      .forEach((order) => {
+        const status = order.status || 'pending';
+        counts[status] = (counts[status] || 0) + 1;
+      });
 
-  useEffect(() => {
-    setLoading(true);
-    OrdersService.getAll()
-      .then((orders) => {
-        const counts: Record<string, number> = {};
-        orders
-          .filter((order) => inRange(order.created_at, range))
-          .forEach((order) => {
-          const s = order.status || "pending";
-          counts[s] = (counts[s] || 0) + 1;
-        });
-        const chartData = Object.entries(counts).map(([status, count]) => ({
-          status,
-          label: STATUS_LABELS[status] || status,
-          count,
-        }));
-        setData(chartData);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [range]);
-
-  if (loading) return <div className="text-center py-8">Cargando...</div>;
+    return Object.entries(counts).map(([status, count]) => ({
+      status,
+      label: STATUS_LABELS[status] || status,
+      count,
+    }));
+  }, [orders, range]);
 
   if (data.length === 0) {
     return (
@@ -71,7 +60,7 @@ export function OrdersByStatusChart({ range }: { range: DateRange }) {
   }
 
   return (
-    <ResponsiveContainer width="100%" height={300}>
+    <ResponsiveContainer width="100%" height={260}>
       <BarChart data={data} margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
         <CartesianGrid strokeDasharray="3 3" />
         <XAxis dataKey="label" />

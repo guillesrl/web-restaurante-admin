@@ -636,56 +636,6 @@ app.get('/api/db-health', async (req, res) => {
 });
 
 // ============================================
-// ANALYTICS
-// ============================================
-
-app.get('/api/analytics/sales-by-hour', async (req, res) => {
-  try {
-    const pad = (n) => String(n).padStart(2, '0');
-    const dateKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-    const isDateStr = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
-
-    const now = new Date();
-    const { from, to } = req.query;
-
-    // Rango: from/to (YYYY-MM-DD) o por defecto el mes actual
-    const startDate = isDateStr(from)
-      ? new Date(`${from}T00:00:00`)
-      : new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-    const endDate = isDateStr(to)
-      ? new Date(`${to}T23:59:59.999`)
-      : new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-
-    const { rows } = await pool.query(
-      `SELECT created_at, total FROM orders WHERE created_at >= $1 AND created_at <= $2`,
-      [startDate.toISOString(), endDate.toISOString()]
-    );
-
-    // Buckets por día (de startDate a endDate inclusive)
-    const buckets = {};
-    const ordered = [];
-    const cur = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
-    const last = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
-    while (cur <= last) {
-      const key = dateKey(cur);
-      buckets[key] = { date: key, sales: 0 };
-      ordered.push(key);
-      cur.setDate(cur.getDate() + 1);
-    }
-
-    rows.forEach((row) => {
-      const key = dateKey(new Date(row.created_at));
-      if (buckets[key]) buckets[key].sales += parseFloat(row.total);
-    });
-
-    res.json(ordered.map((k) => buckets[k]));
-  } catch (err) {
-    console.error('❌ Error en GET /api/analytics/sales-by-hour:', err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// ============================================
 // MENU
 // ============================================
 

@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx';
 import { Order } from '@/services/ordersService';
 import { Reservation } from '@/services/reservationsService';
 import { MenuItem } from '@/services/menuService';
+import { formatCurrency, parseNumber } from '@/lib/utils';
 
 export function exportOrdersToPDF(orders: Order[], title: string) {
   const doc = new jsPDF();
@@ -12,8 +13,8 @@ export function exportOrdersToPDF(orders: Order[], title: string) {
   doc.setFontSize(10);
   doc.text(`Generado: ${new Date().toLocaleString('es-ES')}`, 14, 28);
 
-  const totalSales = orders.reduce((sum, o) => sum + (typeof o.total === 'number' ? o.total : parseFloat(o.total || '0')), 0);
-  doc.text(`Total ventas: $${totalSales.toFixed(2)}`, 14, 36);
+  const totalSales = orders.reduce((sum, o) => sum + parseNumber(o.total), 0);
+  doc.text(`Total ventas: ${formatCurrency(totalSales)}`, 14, 36);
 
   autoTable(doc, {
     startY: 42,
@@ -22,7 +23,7 @@ export function exportOrdersToPDF(orders: Order[], title: string) {
       o.customer_name,
       o.customer_phone || '-',
       Array.isArray(o.items) ? o.items.map(i => `${i.quantity}x ${i.name}`).join(', ') : '-',
-      `$${(typeof o.total === 'number' ? o.total : parseFloat(o.total || '0')).toFixed(2)}`,
+      formatCurrency(o.total),
       o.status,
       o.created_at ? new Date(o.created_at).toLocaleDateString('es-ES') : '-',
       o.time || '-'

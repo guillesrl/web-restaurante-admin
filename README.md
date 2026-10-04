@@ -313,9 +313,6 @@ estado.
 - `PATCH /api/reservations/:id/status` - Cambiar estado
 - `DELETE /api/reservations/:id` - Eliminar reserva
 
-### Analíticas
-- `GET /api/analytics/sales-by-hour` - Obtener ventas totales desglosadas por hora
-
 ## 🔧 Configuración Avanzada
 
 ### React Query + API propia

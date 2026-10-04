@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
 import { Plus, Clock, CheckCircle, XCircle, AlertCircle, FileDown, ChevronRight, ChevronDown } from "lucide-react";
-import { parseNumber } from "@/lib/utils";
+import { formatCurrency, parseNumber } from "@/lib/utils";
 import { filterOrdersByPeriod, type OrderPeriod } from "@/lib/orderFilters";
 
 
@@ -349,7 +349,7 @@ function OrdersManagementComponent() {
                         <div key={index} className="flex justify-between items-center py-1">
                           <span>{item.quantity}x {item.name}</span>
                           <div className="flex items-center gap-2">
-                            <span>${(item.price * item.quantity).toFixed(2)}</span>
+                            <span>{formatCurrency(item.price * item.quantity)}</span>
                             <Button
                               type="button"
                               variant="ghost"
@@ -362,7 +362,7 @@ function OrdersManagementComponent() {
                         </div>
                       ))}
                       <div className="border-t pt-2 mt-2 font-bold">
-                        Total: ${calculateTotal().toFixed(2)}
+                        Total: {formatCurrency(calculateTotal())}
                       </div>
                     </div>
                   </div>
@@ -466,7 +466,7 @@ function OrdersManagementComponent() {
                           order.items.map((item: OrderItem, idx: number) => (
                             <div key={idx} className="flex justify-between text-sm max-w-sm">
                               <span>{item.quantity}x {item.name}</span>
-                              <span className="text-muted-foreground">${(parseNumber(item.price) * item.quantity).toFixed(2)}</span>
+                              <span className="text-muted-foreground">{formatCurrency(parseNumber(item.price) * item.quantity)}</span>
                             </div>
                           ))
                         ) : (
@@ -474,7 +474,7 @@ function OrdersManagementComponent() {
                         )}
                         <div className="flex justify-between text-sm font-bold border-t pt-1 mt-1 max-w-sm">
                           <span>Total</span>
-                          <span>${parseNumber(order.total).toFixed(2)}</span>
+                          <span>{formatCurrency(order.total)}</span>
                         </div>
                       </div>
                     </TableCell>

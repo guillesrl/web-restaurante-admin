@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useMemo } from "react";
 import {
   BarChart,
   Bar,
@@ -8,7 +8,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { OrdersService } from "@/services/ordersService";
+import { Order } from "@/services/ordersService";
 import { DateRange, inRange } from "@/lib/dateRange";
 
 interface DishCount {
@@ -16,33 +16,22 @@ interface DishCount {
   quantity: number;
 }
 
-export function TopDishesChart({ range }: { range: DateRange }) {
-  const [data, setData] = useState<DishCount[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    OrdersService.getAll()
-      .then((orders) => {
-        const counts: Record<string, number> = {};
-        orders
-          .filter((order) => inRange(order.created_at, range))
-          .forEach((order) => {
-          (order.items || []).forEach((item) => {
-            counts[item.name] = (counts[item.name] || 0) + item.quantity;
-          });
+export function TopDishesChart({ orders, range }: { orders: Order[]; range: DateRange }) {
+  const data = useMemo(() => {
+    const counts: Record<string, number> = {};
+    orders
+      .filter((order) => order.status !== 'cancelled' && inRange(order.created_at, range))
+      .forEach((order) => {
+        (order.items || []).forEach((item) => {
+          counts[item.name] = (counts[item.name] || 0) + item.quantity;
         });
-        const sorted = Object.entries(counts)
-          .map(([name, quantity]) => ({ name, quantity }))
-          .sort((a, b) => b.quantity - a.quantity)
-          .slice(0, 5);
-        setData(sorted);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [range]);
+      });
 
-  if (loading) return <div className="text-center py-8">Cargando...</div>;
+    return Object.entries(counts)
+      .map(([name, quantity]) => ({ name, quantity }))
+      .sort((a, b) => b.quantity - a.quantity)
+      .slice(0, 5);
+  }, [orders, range]);
 
   if (data.length === 0) {
     return (
@@ -53,7 +42,7 @@ export function TopDishesChart({ range }: { range: DateRange }) {
   }
 
   return (
-    <ResponsiveContainer width="100%" height={300}>
+    <ResponsiveContainer width="100%" height={260}>
       <BarChart
         data={data}
         layout="vertical"
@@ -61,7 +50,7 @@ export function TopDishesChart({ range }: { range: DateRange }) {
       >
         <CartesianGrid strokeDasharray="3 3" />
         <XAxis type="number" allowDecimals={false} />
-        <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 12 }} />
+        <YAxis type="category" dataKey="name" width={145} tick={{ fontSize: 11 }} />
         <Tooltip formatter={(value: number) => [value, "Unidades"]} />
         <Bar
           dataKey="quantity"

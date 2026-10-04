@@ -11,6 +11,7 @@ import { useMenu, useOrders, useReservations } from "@/hooks/use-queries";
 import { ChunkErrorBoundary } from "@/components/ChunkErrorBoundary";
 import { StockAlertsPanel } from "@/components/StockAlertsPanel";
 import { cargarDatosDashboard, calcularEstadisticas, DatosDashboard } from "@/lib/rutinas";
+import { formatCurrency } from "@/lib/utils";
 
 const MenuManagement = lazy(() => import("@/components/MenuManagement").then(m => ({ default: m.MenuManagement })));
 const OrdersManagement = lazy(() => import("@/components/OrdersManagement").then(m => ({ default: m.OrdersManagement })));
@@ -106,10 +107,10 @@ const Index = () => {
                 <TrendingUp className="h-3 w-3 md:h-4 md:w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
-                <div className="text-lg md:text-2xl font-bold">${stats.totalSales.toFixed(2)}</div>
+                <div className="text-lg md:text-2xl font-bold">{formatCurrency(stats.totalSales)}</div>
                 <p className="text-xs text-muted-foreground leading-tight">Pedidos del día</p>
                 <div className="mt-1.5 pt-1.5 border-t md:mt-2 md:pt-2">
-                  <div className="text-xs md:text-sm font-semibold text-muted-foreground">Mes: ${stats.monthlySales.toFixed(2)}</div>
+                  <div className="text-xs md:text-sm font-semibold text-muted-foreground">Mes: {formatCurrency(stats.monthlySales)}</div>
                 </div>
               </CardContent>
             </Card>

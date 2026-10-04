@@ -17,3 +17,10 @@ export function parseNumber(value: string | number | null | undefined): number {
   const parsed = parseFloat(stringValue);
   return isNaN(parsed) ? 0 : parsed;
 }
+
+export function formatCurrency(value: string | number | null | undefined): string {
+  return new Intl.NumberFormat('es-AD', {
+    style: 'currency',
+    currency: 'EUR',
+  }).format(parseNumber(value));
+}

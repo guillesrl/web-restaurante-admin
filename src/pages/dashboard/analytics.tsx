@@ -2,17 +2,17 @@ import { useMemo, useState } from "react";
 import SalesByHourChart from "@/components/analytics/SalesByHourChart";
 import { OrdersByStatusChart } from "@/components/analytics/OrdersByStatusChart";
 import { TopDishesChart } from "@/components/analytics/TopDishesChart";
-import { ReservationsVsOrdersChart } from "@/components/analytics/ReservationsVsOrdersChart";
 import { DateRangeSelector } from "@/components/analytics/DateRangeSelector";
 import { computeRange, inRange, rangeLabel, RangeKey } from "@/lib/dateRange";
 import { useOrders } from "@/hooks/use-queries";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TrendingUp, Star, Clock, XCircle } from "lucide-react";
+import { formatCurrency, parseNumber } from "@/lib/utils";
 
 export default function AnalyticsPage() {
   const { data: orders = [] } = useOrders();
 
-  const [rangeKey, setRangeKey] = useState<RangeKey>("90d");
+  const [rangeKey, setRangeKey] = useState<RangeKey>("30d");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
 
@@ -25,14 +25,15 @@ export default function AnalyticsPage() {
   const kpis = useMemo(() => {
     const rangeOrders = orders.filter(o => inRange(o.created_at, range));
 
-    const totalSales = rangeOrders.reduce((sum, o) => sum + (typeof o.total === 'number' ? o.total : parseFloat(o.total || '0')), 0);
-    const avgTicket = rangeOrders.length > 0 ? totalSales / rangeOrders.length : 0;
+    const completedOrders = rangeOrders.filter(o => o.status !== 'cancelled');
+    const totalSales = completedOrders.reduce((sum, o) => sum + parseNumber(o.total), 0);
+    const avgTicket = completedOrders.length > 0 ? totalSales / completedOrders.length : 0;
 
     const cancelled = rangeOrders.filter(o => o.status === 'cancelled').length;
     const cancellationRate = rangeOrders.length > 0 ? (cancelled / rangeOrders.length) * 100 : 0;
 
     const dishCount: Record<string, number> = {};
-    rangeOrders.forEach(o => {
+    completedOrders.forEach(o => {
       if (Array.isArray(o.items)) {
         o.items.forEach(i => {
           dishCount[i.name] = (dishCount[i.name] || 0) + (i.quantity || 1);
@@ -42,7 +43,7 @@ export default function AnalyticsPage() {
     const topDish = Object.entries(dishCount).sort((a, b) => b[1] - a[1])[0]?.[0] || '-';
 
     const hourCount: Record<string, number> = {};
-    rangeOrders.forEach(o => {
+    completedOrders.forEach(o => {
       if (o.time) {
         const hour = o.time.split(':')[0];
         hourCount[hour] = (hourCount[hour] || 0) + 1;
@@ -76,7 +77,7 @@ export default function AnalyticsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">${kpis.avgTicket.toFixed(2)}</div>
+            <div className="text-2xl font-bold">{formatCurrency(kpis.avgTicket)}</div>
             <p className="text-xs text-muted-foreground">{periodLabel}</p>
           </CardContent>
         </Card>
@@ -124,10 +125,10 @@ export default function AnalyticsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Top 5 platos más vendidos</CardTitle>
+            <CardTitle className="text-base">Platos más vendidos</CardTitle>
           </CardHeader>
           <CardContent>
-            <TopDishesChart range={range} />
+            <TopDishesChart orders={orders} range={range} />
           </CardContent>
         </Card>
 
@@ -136,25 +137,16 @@ export default function AnalyticsPage() {
             <CardTitle className="text-base">Pedidos por estado</CardTitle>
           </CardHeader>
           <CardContent>
-            <OrdersByStatusChart range={range} />
+            <OrdersByStatusChart orders={orders} range={range} />
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Reservas vs Pedidos — {periodLabel}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ReservationsVsOrdersChart range={range} />
-          </CardContent>
-        </Card>
-
-        <Card>
+        <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle className="text-base">Ventas por día — {periodLabel}</CardTitle>
           </CardHeader>
           <CardContent>
-            <SalesByHourChart range={range} />
+            <SalesByHourChart orders={orders} range={range} />
           </CardContent>
         </Card>
       </div>
