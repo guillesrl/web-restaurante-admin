@@ -14,7 +14,7 @@ Panel de administración para restaurante con gestión de menú, pedidos y reser
 - **Interfaz Moderna**: React + TypeScript + Tailwind CSS + shadcn/ui
 - **Actualización automática**: React Query consulta la API cada 15 segundos, incluyendo pedidos creados por el agente y flujos externos
 - **Notificaciones Telegram**: Avisos a Telegram en nuevos pedidos, reservas y stock bajo (opcional, vía `TELEGRAM_BOT_TOKEN`)
-- **Autenticación**: Login opcional con contraseña + token propio (JWT firmado); protege todas las rutas `/api` si `DASHBOARD_PASSWORD` está definida
+- **Usuarios y permisos**: Cuentas individuales con sesiones `HttpOnly`, roles de propietario, cocina y reparto
 - **Analíticas**: KPIs (ticket promedio, plato estrella, hora pico, tasa de cancelación) + 4 gráficos interactivos
 - **Exportación**: Reportes en PDF y Excel para pedidos, reservas y menú
 - **Seguridad**: Helmet, rate-limiting, logging con Morgan y validación con Zod en el servidor
@@ -41,7 +41,7 @@ Panel de administración para restaurante con gestión de menú, pedidos y reser
 - **PostgreSQL** - Base de datos, conexión directa vía `DATABASE_URL`
 - **pg** - Driver de PostgreSQL (Pool de conexiones)
 - **Zod** - Validación de payloads en la API
-- **Auth propia** (`auth.js`) - Token JWT firmado con `JWT_SECRET`; login por `DASHBOARD_PASSWORD`
+- **Autenticación propia** (`auth.js`) - Sesiones firmadas en cookies `HttpOnly` y contraseñas con scrypt
 - **Notificaciones Telegram** (`notify.js`) - Avisos vía Bot API (tolerante a fallo)
 - **Helmet** - Headers de seguridad HTTP
 - **express-rate-limit** - Limitación de peticiones (200 req/15min)
@@ -80,9 +80,10 @@ VITE_API_URL=/api
 PORT=8080
 NODE_ENV=development
 
-# Auth (opcional) — si DASHBOARD_PASSWORD está vacía, la auth queda deshabilitada
+# Migración inicial desde la contraseña compartida (temporal)
 DASHBOARD_PASSWORD=
-JWT_SECRET=
+# Se recomienda definir este secreto aleatorio largo en producción
+DASHBOARD_AUTH_SECRET=
 
 # Notificaciones Telegram (opcional)
 TELEGRAM_BOT_TOKEN=
@@ -147,6 +148,29 @@ CREATE TABLE orders (
 El servidor añade automáticamente las columnas operativas que falten al iniciar.
 Para cancelaciones de agentes también crea la tabla interna
 `agent_order_cancellation_confirmations`, cuyos tokens expiran a los diez minutos.
+
+#### Tabla `dashboard_users`
+```sql
+CREATE TABLE dashboard_users (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    role VARCHAR(20) NOT NULL, -- owner | kitchen | driver
+    password_hash TEXT NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+#### Tabla `audit_events`
+
+Registra el usuario, rol y momento de los pedidos creados, cambios de estado y
+cancelaciones efectuadas desde el dashboard.
+
+Tras desplegar desde la versión anterior, entra una última vez con la
+contraseña compartida y crea desde el botón de usuarios una cuenta de
+`Propietario`. Desde ese momento la contraseña compartida queda desactivada.
 
 #### Tabla `reservations`
 ```sql
@@ -216,9 +240,10 @@ DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
 PORT=80
 NODE_ENV=production
 
-# Auth y notificaciones (opcionales)
+# Auth: contraseña compartida temporal para migrar la primera cuenta
 DASHBOARD_PASSWORD=
-JWT_SECRET=
+DASHBOARD_AUTH_SECRET=
+# Notificaciones (opcionales)
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
 AGENT_ORDER_API_KEY=
@@ -252,13 +277,19 @@ EasyPanel con el commit enviado a GitHub.
 
 ## 📡 API Endpoints
 
-Todas las rutas `/api/*` (salvo las públicas de auth y health) requieren token si la auth está activada.
+Todas las rutas `/api/*` (salvo las públicas de auth y health) requieren una
+sesión activa si hay cuentas configuradas. Los permisos se validan en servidor:
+propietario gestiona todo, cocina avanza a `Preparando` o `Listo`, y reparto a
+`En reparto` o `Entregado`.
 
-### Auth y health (públicas)
+### Auth y health
 - `GET /api/health` - Estado del servidor
-- `GET /api/db-health` - Estado de la conexión a PostgreSQL
-- `GET /api/auth/status` - Indica si la auth está habilitada
-- `POST /api/login` - Login con contraseña; devuelve token
+- `GET /api/db-health` - Estado de la conexión a PostgreSQL (solo propietario)
+- `GET /api/auth/status` - Indica el estado de acceso y si falta migrar la primera cuenta
+- `POST /api/login` - Inicia una sesión por cookie segura
+- `POST /api/logout` - Cierra la sesión actual
+- `GET /api/auth/me` - Devuelve el usuario de la sesión actual
+- `GET|POST|PATCH /api/users` - Gestión de usuarios, solo propietario
 
 ### Menú
 - `GET /api/menu` - Obtener todos los items
@@ -340,8 +371,8 @@ Cada sección (pedidos, reservas, menú) incluye botones para exportar a PDF y E
 - `PORT`: Puerto del servidor (default: 80 en producción, 8080 en desarrollo)
 - `NODE_ENV`: Entorno (development/production)
 - `VITE_API_URL`: URL base de la API (default: `/api`)
-- `DASHBOARD_PASSWORD`: Contraseña de acceso; si está vacía, la auth queda deshabilitada
-- `JWT_SECRET`: Secreto para firmar el token (default: usa `DASHBOARD_PASSWORD`)
+- `DASHBOARD_PASSWORD`: Contraseña compartida temporal para migrar la primera cuenta
+- `DASHBOARD_AUTH_SECRET`: Secreto largo y aleatorio para firmar sesiones
 - `TELEGRAM_BOT_TOKEN`: Token del bot para notificaciones (opcional)
 - `TELEGRAM_CHAT_ID`: Chat destino de las notificaciones (opcional)
 

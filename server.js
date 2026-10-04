@@ -9,7 +9,17 @@ import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { z } from 'zod';
-import { authEnabled, createToken, checkPassword, requireAuth } from './auth.js';
+import {
+  checkLegacyPassword,
+  clearSessionCookie,
+  createSession,
+  hashPassword,
+  legacyAuthEnabled,
+  passwordPolicy,
+  readSession,
+  setSessionCookie,
+  verifyPassword,
+} from './auth.js';
 import { notifyTelegram, telegramEnabled } from './notify.js';
 import { cancelPendingOrder } from './orderCancellation.js';
 
@@ -71,6 +81,23 @@ const orderSchema = z.object({
 });
 
 const orderStatusSchema = z.enum(['pending', 'preparing', 'ready', 'out_for_delivery', 'delivered', 'cancelled']);
+const dashboardRoleSchema = z.enum(['owner', 'kitchen', 'driver']);
+const dashboardUserSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  email: z.string().trim().email().max(255),
+  role: dashboardRoleSchema,
+  password: z.string().min(12).max(200),
+});
+const dashboardUserUpdateSchema = z.object({
+  name: z.string().trim().min(1).max(100).optional(),
+  role: dashboardRoleSchema.optional(),
+  password: z.string().min(12).max(200).optional(),
+  is_active: z.boolean().optional(),
+}).refine((value) => Object.keys(value).length > 0, { message: 'Indica al menos un cambio' });
+const loginSchema = z.object({
+  email: z.string().trim().email().max(255).optional(),
+  password: z.string().min(1).max(200),
+});
 
 const agentOrderSchema = z.object({
   customer_name: z.string().trim().min(1).max(255),
@@ -290,16 +317,51 @@ app.get('/api/health', (req, res) => {
 // ============================================
 
 app.get('/api/auth/status', (req, res) => {
-  res.json({ success: true, data: { enabled: authEnabled } });
+  res.json({
+    success: true,
+    data: {
+      enabled: dashboardUsersConfigured || legacyAuthEnabled,
+      migration_required: !dashboardUsersConfigured && legacyAuthEnabled,
+    },
+  });
 });
 
-app.post('/api/login', loginLimiter, (req, res) => {
-  if (!authEnabled) return res.json({ success: true, data: { token: null, enabled: false } });
-  const { password } = req.body || {};
-  if (!checkPassword(password)) {
-    return res.status(401).json({ success: false, error: 'Contraseña incorrecta' });
+app.post('/api/login', loginLimiter, async (req, res) => {
+  const parsed = loginSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ success: false, error: 'Datos de acceso no válidos' });
+  const { email, password } = parsed.data;
+
+  if (!dashboardUsersConfigured) {
+    if (!legacyAuthEnabled || !checkLegacyPassword(password)) {
+      return res.status(401).json({ success: false, error: 'Contraseña incorrecta' });
+    }
+    const user = { id: null, name: 'Propietario provisional', email: null, role: 'owner', is_active: true, legacy: true };
+    setSessionCookie(res, createSession(user, 'legacy'));
+    return res.json({ success: true, data: { user } });
   }
-  res.json({ success: true, data: { token: createToken() } });
+
+  if (!email) return res.status(400).json({ success: false, error: 'Indica tu correo electrónico' });
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name, email, role, is_active, password_hash, created_at, updated_at
+       FROM dashboard_users WHERE lower(email)=lower($1)`,
+      [email]
+    );
+    const user = rows[0];
+    if (!user || !user.is_active || !(await verifyPassword(password, user.password_hash))) {
+      return res.status(401).json({ success: false, error: 'Correo o contraseña incorrectos' });
+    }
+    setSessionCookie(res, createSession(user));
+    return res.json({ success: true, data: { user: publicUser(user) } });
+  } catch (err) {
+    console.error('❌ Error al iniciar sesión:', err.message);
+    return res.status(500).json({ success: false, error: 'No se pudo iniciar sesión' });
+  }
+});
+
+app.post('/api/logout', (req, res) => {
+  clearSessionCookie(res);
+  res.json({ success: true });
 });
 
 // ============================================
@@ -325,6 +387,81 @@ function agentError(code, message, details, statusCode = 400) {
   error.details = details;
   error.statusCode = statusCode;
   return error;
+}
+
+let dashboardUsersConfigured = false;
+
+const publicUser = (row) => ({
+  id: row.id,
+  name: row.name,
+  email: row.email,
+  role: row.role,
+  is_active: row.is_active,
+  created_at: row.created_at,
+  updated_at: row.updated_at,
+});
+
+async function recordAuditEvent(client, req, action, entityType, entityId, metadata = {}) {
+  if (!req.user) return;
+  await client.query(
+    `INSERT INTO audit_events (actor_user_id, actor_role, action, entity_type, entity_id, metadata)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [req.user.id, req.user.role, action, entityType, String(entityId), JSON.stringify(metadata)]
+  );
+}
+
+async function requireAuth(req, res, next) {
+  const session = readSession(req);
+  // Conserva el comportamiento de desarrollo de versiones anteriores: sin
+  // cuentas ni contraseña compartida, el dashboard queda abierto localmente.
+  if (!dashboardUsersConfigured && !legacyAuthEnabled) {
+    req.user = { id: null, name: 'Acceso local', email: null, role: 'owner', is_active: true };
+    return next();
+  }
+  if (!session) return res.status(401).json({ success: false, error: 'No autorizado' });
+
+  if (!dashboardUsersConfigured && session.kind === 'legacy' && legacyAuthEnabled) {
+    req.user = { id: null, name: 'Propietario provisional', email: null, role: 'owner', is_active: true, legacy: true };
+    return next();
+  }
+  if (session.kind !== 'user' || !Number.isInteger(session.sub)) {
+    return res.status(401).json({ success: false, error: 'Sesión no válida' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name, email, role, is_active, created_at, updated_at
+       FROM dashboard_users WHERE id=$1`,
+      [session.sub]
+    );
+    const user = rows[0];
+    if (!user || !user.is_active || user.role !== session.role) {
+      clearSessionCookie(res);
+      return res.status(401).json({ success: false, error: 'Sesión no válida' });
+    }
+    req.user = publicUser(user);
+    return next();
+  } catch (err) {
+    console.error('❌ Error validando sesión:', err.message);
+    return res.status(503).json({ success: false, error: 'No se pudo validar la sesión' });
+  }
+}
+
+function requireRole(...roles) {
+  return (req, res, next) => {
+    if (!req.user || !roles.includes(req.user.role)) {
+      return res.status(403).json({ success: false, error: 'No tienes permiso para esta acción' });
+    }
+    return next();
+  };
+}
+
+function requireOrderStatusRole(req, res, next) {
+  const status = req.body?.status;
+  if (req.user?.role === 'owner') return next();
+  if (req.user?.role === 'kitchen' && ['preparing', 'ready'].includes(status)) return next();
+  if (req.user?.role === 'driver' && ['out_for_delivery', 'delivered'].includes(status)) return next();
+  return res.status(403).json({ success: false, error: 'No tienes permiso para cambiar este estado' });
 }
 
 function phoneNumbersMatch(first, second) {
@@ -618,7 +755,99 @@ app.post('/api/agent/orders', agentOrderLimiter, requireAgentOrderKey, async (re
 // A partir de aquí, todas las rutas /api requieren autenticación
 app.use('/api', requireAuth);
 
-app.get('/api/db-health', async (req, res) => {
+app.get('/api/auth/me', (req, res) => {
+  res.json({ success: true, data: { user: req.user } });
+});
+
+app.get('/api/users', requireRole('owner'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name, email, role, is_active, created_at, updated_at
+       FROM dashboard_users ORDER BY created_at ASC`
+    );
+    res.json({ success: true, data: rows.map(publicUser) });
+  } catch (err) {
+    console.error('❌ Error listando usuarios:', err.message);
+    res.status(500).json({ success: false, error: 'No se pudieron cargar los usuarios' });
+  }
+});
+
+app.post('/api/users', requireRole('owner'), async (req, res) => {
+  const parsed = dashboardUserSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ success: false, error: passwordPolicy });
+  const user = parsed.data;
+  if (!dashboardUsersConfigured && user.role !== 'owner') {
+    return res.status(409).json({ success: false, error: 'La primera cuenta debe ser un propietario' });
+  }
+  try {
+    const passwordHash = await hashPassword(user.password);
+    const { rows } = await pool.query(
+      `INSERT INTO dashboard_users (name, email, role, password_hash)
+       VALUES ($1, lower($2), $3, $4)
+       RETURNING id, name, email, role, is_active, created_at, updated_at`,
+      [user.name, user.email, user.role, passwordHash]
+    );
+    dashboardUsersConfigured = true;
+    res.status(201).json({ success: true, data: publicUser(rows[0]) });
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ success: false, error: 'Ya existe un usuario con ese correo' });
+    console.error('❌ Error creando usuario:', err.message);
+    res.status(500).json({ success: false, error: 'No se pudo crear el usuario' });
+  }
+});
+
+app.patch('/api/users/:id', requireRole('owner'), async (req, res) => {
+  const parsed = dashboardUserUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ success: false, error: passwordPolicy });
+  const userId = Number(req.params.id);
+  if (!Number.isInteger(userId) || userId < 1) return res.status(400).json({ success: false, error: 'Usuario no válido' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // Serializa cambios de rol/activación para que nunca puedan desactivarse
+    // dos propietarios a la vez y dejar el dashboard sin administrador.
+    await client.query('LOCK TABLE dashboard_users IN SHARE ROW EXCLUSIVE MODE');
+    const { rows: currentRows } = await client.query('SELECT * FROM dashboard_users WHERE id=$1 FOR UPDATE', [userId]);
+    const current = currentRows[0];
+    if (!current) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, error: 'Usuario no encontrado' });
+    }
+    const changes = parsed.data;
+    const nextRole = changes.role || current.role;
+    const nextActive = changes.is_active ?? current.is_active;
+    if (current.role === 'owner' && current.is_active && (nextRole !== 'owner' || !nextActive)) {
+      const { rows: countRows } = await client.query(
+        `SELECT count(*)::int AS count FROM dashboard_users
+         WHERE role='owner' AND is_active=true AND id <> $1`,
+        [userId]
+      );
+      if (countRows[0].count === 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ success: false, error: 'Debe permanecer al menos un propietario activo' });
+      }
+    }
+    const passwordHash = changes.password ? await hashPassword(changes.password) : current.password_hash;
+    const { rows } = await client.query(
+      `UPDATE dashboard_users
+       SET name=$1, role=$2, is_active=$3, password_hash=$4, updated_at=NOW()
+       WHERE id=$5
+       RETURNING id, name, email, role, is_active, created_at, updated_at`,
+      [changes.name || current.name, nextRole, nextActive, passwordHash, userId]
+    );
+    await client.query('COMMIT');
+    res.json({ success: true, data: publicUser(rows[0]) });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('❌ Error actualizando usuario:', err.message);
+    res.status(500).json({ success: false, error: 'No se pudo actualizar el usuario' });
+  } finally {
+    client.release();
+  }
+});
+
+app.get('/api/db-health', requireRole('owner'), async (req, res) => {
   try {
     const result = await pool.query('SELECT 1');
     res.json({ success: true, data: { status: 'ok', db_connected: true } });
@@ -631,7 +860,7 @@ app.get('/api/db-health', async (req, res) => {
 // MENU
 // ============================================
 
-app.get('/api/menu', async (req, res) => {
+app.get('/api/menu', requireRole('owner'), async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM menu ORDER BY id ASC');
     res.json({ success: true, data: rows.map(mapMenuItem) });
@@ -641,7 +870,7 @@ app.get('/api/menu', async (req, res) => {
   }
 });
 
-app.post('/api/menu', async (req, res) => {
+app.post('/api/menu', requireRole('owner'), async (req, res) => {
   try {
     const v = menuSchema.safeParse(req.body);
     if (!v.success) return res.status(400).json({ success: false, error: v.error.errors.map(e => e.message).join(', ') });
@@ -659,7 +888,7 @@ app.post('/api/menu', async (req, res) => {
   }
 });
 
-app.put('/api/menu/:id', async (req, res) => {
+app.put('/api/menu/:id', requireRole('owner'), async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description, ingredientes, price, category, stock, vegetariano, gluten, marisco, lactosa, vegano } = req.body;
@@ -679,7 +908,7 @@ app.put('/api/menu/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/menu/:id', async (req, res) => {
+app.delete('/api/menu/:id', requireRole('owner'), async (req, res) => {
   try {
     const { id } = req.params;
     await pool.query('DELETE FROM menu WHERE id=$1', [id]);
@@ -690,7 +919,7 @@ app.delete('/api/menu/:id', async (req, res) => {
   }
 });
 
-app.patch('/api/menu/:id/stock', async (req, res) => {
+app.patch('/api/menu/:id/stock', requireRole('owner'), async (req, res) => {
   try {
     const { id } = req.params;
     const { stock } = req.body;
@@ -712,7 +941,7 @@ app.patch('/api/menu/:id/stock', async (req, res) => {
 // ORDERS
 // ============================================
 
-app.get('/api/orders', async (req, res) => {
+app.get('/api/orders', requireRole('owner', 'kitchen', 'driver'), async (req, res) => {
   try {
     const { filter } = req.query;
     const now = new Date();
@@ -743,7 +972,7 @@ app.get('/api/orders', async (req, res) => {
   }
 });
 
-app.post('/api/orders', async (req, res) => {
+app.post('/api/orders', requireRole('owner'), async (req, res) => {
   const client = await pool.connect();
   try {
     const v = orderSchema.safeParse(req.body);
@@ -807,6 +1036,7 @@ app.post('/api/orders', async (req, res) => {
         fulfillment_type,
       ]
     );
+    await recordAuditEvent(client, req, 'order.created', 'order', rows[0].id, { source: 'dashboard' });
     await client.query('COMMIT');
     res.json({ success: true, data: mapOrder(rows[0]) });
     notifyTelegram(`🧾 <b>Nuevo pedido</b>\n${customer_name}\n${lines.length} artículo(s) · ${calculatedTotal.toFixed(2)}€`);
@@ -822,7 +1052,7 @@ app.post('/api/orders', async (req, res) => {
   }
 });
 
-app.patch('/api/orders/:id/status', async (req, res) => {
+app.patch('/api/orders/:id/status', requireOrderStatusRole, async (req, res) => {
   const parsedStatus = orderStatusSchema.safeParse(req.body?.status);
   if (!parsedStatus.success) {
     return res.status(400).json({ success: false, error: 'Estado de pedido no válido' });
@@ -842,7 +1072,9 @@ app.patch('/api/orders/:id/status', async (req, res) => {
     const previous = current.rows[0];
     let result;
     if (status === 'cancelled') {
-      const cancellation = await cancelPendingOrder(client, previous, 'dashboard');
+      const cancelledBy = req.user?.id ? `dashboard:${req.user.id}` : 'dashboard:legacy';
+      const cancellation = await cancelPendingOrder(client, previous, cancelledBy);
+      await recordAuditEvent(client, req, 'order.cancelled', 'order', cancellation.order.id, { stock_restored: cancellation.stockRestored });
       await client.query('COMMIT');
       return res.json({
         success: true,
@@ -888,6 +1120,7 @@ app.patch('/api/orders/:id/status', async (req, res) => {
       );
     }
 
+    await recordAuditEvent(client, req, 'order.status_changed', 'order', id, { from: previous.status, to: status });
     await client.query('COMMIT');
     const { rows } = result;
     if (!rows[0]) return res.status(404).json({ success: false, error: 'Order not found' });
@@ -908,7 +1141,7 @@ app.patch('/api/orders/:id/status', async (req, res) => {
 // RESERVATIONS
 // ============================================
 
-app.get('/api/reservations', async (req, res) => {
+app.get('/api/reservations', requireRole('owner'), async (req, res) => {
   try {
     const { filter } = req.query;
     const now = new Date();
@@ -935,7 +1168,7 @@ app.get('/api/reservations', async (req, res) => {
   }
 });
 
-app.post('/api/reservations', async (req, res) => {
+app.post('/api/reservations', requireRole('owner'), async (req, res) => {
   try {
     const v = reservationSchema.safeParse(req.body);
     if (!v.success) return res.status(400).json({ success: false, error: v.error.errors.map(e => e.message).join(', ') });
@@ -954,7 +1187,7 @@ app.post('/api/reservations', async (req, res) => {
   }
 });
 
-app.patch('/api/reservations/:id/status', async (req, res) => {
+app.patch('/api/reservations/:id/status', requireRole('owner'), async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -970,7 +1203,7 @@ app.patch('/api/reservations/:id/status', async (req, res) => {
   }
 });
 
-app.delete('/api/reservations/:id', async (req, res) => {
+app.delete('/api/reservations/:id', requireRole('owner'), async (req, res) => {
   try {
     const { id } = req.params;
     await pool.query('DELETE FROM reservations WHERE id=$1', [id]);
@@ -1035,9 +1268,45 @@ async function ensureAgentOrderColumns() {
   `);
 }
 
+async function ensureDashboardUserSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS dashboard_users (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      email VARCHAR(255) NOT NULL,
+      role VARCHAR(20) NOT NULL CHECK (role IN ('owner', 'kitchen', 'driver')),
+      password_hash TEXT NOT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS dashboard_users_email_lower_idx ON dashboard_users (lower(email))');
+  const { rows } = await pool.query('SELECT EXISTS(SELECT 1 FROM dashboard_users) AS configured');
+  dashboardUsersConfigured = rows[0].configured;
+}
+
+async function ensureAuditSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS audit_events (
+      id BIGSERIAL PRIMARY KEY,
+      actor_user_id INTEGER REFERENCES dashboard_users(id) ON DELETE SET NULL,
+      actor_role VARCHAR(20),
+      action VARCHAR(100) NOT NULL,
+      entity_type VARCHAR(50) NOT NULL,
+      entity_id VARCHAR(100) NOT NULL,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS audit_events_entity_idx ON audit_events (entity_type, entity_id, created_at DESC)');
+}
+
 async function startServer() {
   try {
     await ensureAgentOrderColumns();
+    await ensureDashboardUserSchema();
+    await ensureAuditSchema();
     app.listen(port, () => {
       console.log(`✅ API server running on http://localhost:${port}`);
       console.log('📊 Database: Neon PostgreSQL');

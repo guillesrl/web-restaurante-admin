@@ -21,7 +21,7 @@ export const RESERVATIONS_KEYS = {
   date: (date: string) => ['reservations', 'date', date] as const,
 };
 
-export function useMenu() {
+export function useMenu(enabled = true) {
   return useQuery({
     queryKey: MENU_KEYS.all,
     queryFn: () => MenuService.getAll(),
@@ -29,6 +29,7 @@ export function useMenu() {
     // Incluye cambios hechos por el agente y los flujos externos sin depender
     // de una conexión directa del navegador a la base de datos.
     refetchInterval: 15_000,
+    enabled,
   });
 }
 
@@ -100,12 +101,13 @@ export function useUpdateOrderStatus() {
   });
 }
 
-export function useReservations() {
+export function useReservations(enabled = true) {
   return useQuery({
     queryKey: RESERVATIONS_KEYS.all,
     queryFn: () => ReservationsService.getAll(),
     staleTime: 30_000,
     refetchInterval: 15_000,
+    enabled,
   });
 }
 

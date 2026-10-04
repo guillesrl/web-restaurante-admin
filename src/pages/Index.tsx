@@ -2,9 +2,10 @@ import { useState, Suspense, lazy, useMemo, useEffect } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChefHat, ShoppingCart, Calendar, TrendingUp, Moon, Sun, BarChart3, LogOut } from "lucide-react";
+import { ChefHat, ShoppingCart, Calendar, TrendingUp, Moon, Sun, BarChart3, LogOut, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getToken, clearToken } from "@/lib/auth";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { useDashboardAuth } from "@/components/AuthGate";
 import { useTheme } from "next-themes";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useMenu, useOrders, useReservations } from "@/hooks/use-queries";
@@ -12,6 +13,7 @@ import { ChunkErrorBoundary } from "@/components/ChunkErrorBoundary";
 import { StockAlertsPanel } from "@/components/StockAlertsPanel";
 import { cargarDatosDashboard, calcularEstadisticas, DatosDashboard } from "@/lib/rutinas";
 import { formatCurrency } from "@/lib/utils";
+import { UsersManagement } from "@/components/UsersManagement";
 
 const MenuManagement = lazy(() => import("@/components/MenuManagement").then(m => ({ default: m.MenuManagement })));
 const OrdersManagement = lazy(() => import("@/components/OrdersManagement").then(m => ({ default: m.OrdersManagement })));
@@ -28,12 +30,15 @@ const TabLoader = () => (
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState("reservations");
+  const [usersDialogOpen, setUsersDialogOpen] = useState(false);
   const { theme, setTheme } = useTheme();
   const isMobile = useIsMobile();
+  const { user, logout } = useDashboardAuth();
+  const isOwner = !user || user.role === 'owner';
 
-  const { data: menuItems = [] } = useMenu();
+  const { data: menuItems = [] } = useMenu(isOwner);
   const { data: orders = [], refetch: refetchOrders } = useOrders();
-  const { data: allReservations = [], isLoading: isLoadingReservations } = useReservations();
+  const { data: allReservations = [], isLoading: isLoadingReservations } = useReservations(isOwner);
 
   const [datosFiltrados, setDatosFiltrados] = useState<DatosDashboard>({
     pedidosHoy: [],
@@ -44,8 +49,8 @@ const Index = () => {
   });
 
   useEffect(() => {
-    cargarDatosDashboard().then(setDatosFiltrados);
-  }, [orders, allReservations]);
+    if (isOwner) cargarDatosDashboard().then(setDatosFiltrados);
+  }, [orders, allReservations, isOwner]);
 
   const stats = useMemo(
     () => calcularEstadisticas(menuItems, datosFiltrados),
@@ -75,11 +80,17 @@ const Index = () => {
                 <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
                 <span className="sr-only">Toggle theme</span>
               </Button>
-              {getToken() && (
+              {isOwner && user && (
+                <Button variant="outline" size="icon" onClick={() => setUsersDialogOpen(true)} title="Usuarios y permisos">
+                  <Users className="h-5 w-5" />
+                  <span className="sr-only">Usuarios y permisos</span>
+                </Button>
+              )}
+              {user && (
                 <Button
                   variant="outline"
                   size="icon"
-                  onClick={() => { clearToken(); window.location.reload(); }}
+                  onClick={() => { logout(); }}
                   title="Cerrar sesión"
                 >
                   <LogOut className="h-5 w-5" />
@@ -93,10 +104,8 @@ const Index = () => {
 
       {/* Main Content */}
       <div className="flex-1 overflow-auto">
-        {/* Alertas de stock bajo */}
-        <div className="pt-3 md:pt-6">
-          <StockAlertsPanel />
-        </div>
+        {isOwner && <>
+          <div className="pt-3 md:pt-6"><StockAlertsPanel /></div>
 
         {/* Stats Overview - 2x2 en móvil, 4 columnas en desktop */}
         <div className="py-3 md:py-6">
@@ -155,9 +164,13 @@ const Index = () => {
             </Card>
           </div>
         </div>
+        </>}
 
         {/* Tabs Content */}
         <div className={`${isMobile ? 'flex-1' : 'container mx-auto px-4'} ${isMobile ? '' : 'pb-8'}`}>
+          {!isOwner ? (
+            <OrdersManagement role={user?.role} />
+          ) : (
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4 h-full">
             {/* Desktop: Tabs normal arriba */}
             {!isMobile && (
@@ -285,8 +298,12 @@ const Index = () => {
               </>
             )}
           </Tabs>
+          )}
         </div>
       </div>
+      <Dialog open={usersDialogOpen} onOpenChange={setUsersDialogOpen}>
+        <DialogContent className="max-w-2xl"><UsersManagement /></DialogContent>
+      </Dialog>
     </div>
   );
 };

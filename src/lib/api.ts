@@ -2,7 +2,7 @@
 // Cliente HTTP para comunicarse con una API REST
 // Esto evita el problema de usar pg directamente en el navegador
 
-import { getToken, handleUnauthorized } from './auth';
+import { handleUnauthorized } from './auth';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -12,33 +12,64 @@ export interface ApiResponse<T> {
   error?: string;
 }
 
+export type DashboardRole = 'owner' | 'kitchen' | 'driver';
+export interface DashboardUser {
+  id: number | null;
+  name: string;
+  email: string | null;
+  role: DashboardRole;
+  is_active: boolean;
+  legacy?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
 class ApiClient {
   // Auth endpoints
   async getAuthStatus() {
-    return this.request<{ enabled: boolean }>('/auth/status');
+    return this.request<{ enabled: boolean; migration_required: boolean }>('/auth/status');
   }
 
-  async login(password: string) {
-    return this.request<{ token: string | null; enabled?: boolean }>('/login', {
+  async login(email: string, password: string) {
+    return this.request<{ user: DashboardUser }>('/login', {
       method: 'POST',
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ email: email || undefined, password }),
     });
+  }
+
+  async getCurrentUser() {
+    return this.request<{ user: DashboardUser }>('/auth/me');
+  }
+
+  async logout() {
+    return this.request<null>('/logout', { method: 'POST' });
+  }
+
+  async getUsers() {
+    return this.request<DashboardUser[]>('/users');
+  }
+
+  async createUser(user: { name: string; email: string; role: DashboardRole; password: string }) {
+    return this.request<DashboardUser>('/users', { method: 'POST', body: JSON.stringify(user) });
+  }
+
+  async updateUser(id: number, user: Partial<Pick<DashboardUser, 'name' | 'role' | 'is_active'>> & { password?: string }) {
+    return this.request<DashboardUser>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(user) });
   }
 
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
     try {
-      const token = getToken();
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        credentials: 'same-origin',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
           ...options.headers,
         },
         ...options,
       });
 
       if (response.status === 401) {
-        handleUnauthorized();
+        if (endpoint !== '/auth/me' && endpoint !== '/login') handleUnauthorized();
         return { success: false, error: 'No autorizado' };
       }
 

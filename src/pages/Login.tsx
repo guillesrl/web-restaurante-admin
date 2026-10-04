@@ -1,17 +1,18 @@
 import { useState } from "react";
 import { Lock } from "lucide-react";
 import { api } from "@/lib/api";
-import { setToken } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface LoginProps {
+  migrationRequired: boolean;
   onSuccess: () => void;
 }
 
-export default function Login({ onSuccess }: LoginProps) {
+export default function Login({ migrationRequired, onSuccess }: LoginProps) {
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -20,10 +21,9 @@ export default function Login({ onSuccess }: LoginProps) {
     e.preventDefault();
     setError("");
     setLoading(true);
-    const res = await api.login(password);
+    const res = await api.login(email, password);
     setLoading(false);
-    if (res.success && res.data?.token) {
-      setToken(res.data.token);
+    if (res.success && res.data?.user) {
       onSuccess();
     } else {
       setError(res.error || "Contraseña incorrecta");
@@ -42,17 +42,33 @@ export default function Login({ onSuccess }: LoginProps) {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="password">Contraseña</Label>
+              {!migrationRequired && <>
+                <Label htmlFor="email">Correo electrónico</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  autoFocus
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="nombre@restaurante.com"
+                />
+              </>}
+              <Label htmlFor="password">{migrationRequired ? 'Contraseña actual' : 'Contraseña'}</Label>
               <Input
                 id="password"
                 type="password"
-                autoFocus
+                autoFocus={migrationRequired}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Introduce la contraseña"
               />
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
+            {migrationRequired && (
+              <p className="text-xs text-muted-foreground">
+                Acceso provisional. Crea tu cuenta individual desde el botón de usuarios al entrar.
+              </p>
+            )}
             <Button type="submit" className="w-full" disabled={loading || !password}>
               {loading ? "Entrando..." : "Entrar"}
             </Button>

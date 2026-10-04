@@ -15,11 +15,13 @@ import { toast } from "@/hooks/use-toast";
 import { Plus, Clock, CheckCircle, XCircle, AlertCircle, FileDown, ChevronRight, ChevronDown, Truck } from "lucide-react";
 import { formatCurrency, parseNumber } from "@/lib/utils";
 import { filterOrdersByPeriod, type OrderPeriod } from "@/lib/orderFilters";
+import type { DashboardRole } from "@/lib/api";
 
 
-function OrdersManagementComponent() {
+function OrdersManagementComponent({ role = 'owner' }: { role?: DashboardRole }) {
   const { data: orders = [], isLoading } = useOrders();
-  const { data: menuItems = [] } = useMenu();
+  const canCreateOrders = role === 'owner';
+  const { data: menuItems = [] } = useMenu(canCreateOrders);
   const createOrder = useCreateOrder();
   const updateOrderStatus = useUpdateOrderStatus();
 
@@ -48,6 +50,12 @@ function OrdersManagementComponent() {
     { value: "delivered", label: "Entregado", color: "bg-gray-500" },
     { value: "cancelled", label: "Cancelado", color: "bg-red-500" }
   ];
+  const statusOptionsForRole = (currentStatus: Order['status']) => statusOptions.filter((option) => {
+    if (option.value === currentStatus) return true;
+    if (role === 'owner') return true;
+    if (role === 'kitchen') return ['preparing', 'ready'].includes(option.value);
+    return ['out_for_delivery', 'delivered'].includes(option.value);
+  });
 
   const visibleOrders = filterOrdersByPeriod(orders, orderPeriod);
 
@@ -303,7 +311,7 @@ function OrdersManagementComponent() {
               Excel
             </Button>
           </div>
-          <Dialog open={dialogOpen} onOpenChange={(open) => {
+          {canCreateOrders && <Dialog open={dialogOpen} onOpenChange={(open) => {
             setDialogOpen(open);
             if (!open) resetForm();
           }}>
@@ -432,7 +440,7 @@ function OrdersManagementComponent() {
                 </div>
               </form>
             </DialogContent>
-          </Dialog>
+          </Dialog>}
         </div>
       </CardHeader>
       <Dialog
@@ -542,7 +550,7 @@ function OrdersManagementComponent() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {statusOptions
+                        {statusOptionsForRole(order.status)
                           .filter(option => option.value !== 'cancelled' || order.status === 'pending' || order.status === 'cancelled')
                           .map(option => (
                           <SelectItem key={option.value} value={option.value}>
