@@ -129,7 +129,7 @@ CREATE TABLE orders (
     status VARCHAR(50) DEFAULT 'pending',
     time VARCHAR(10),
     source VARCHAR(50),
-    fulfillment_type VARCHAR(20) NOT NULL DEFAULT 'delivery', -- pickup | delivery
+    fulfillment_type VARCHAR(20), -- pickup | delivery
     scheduled_for TIMESTAMPTZ,
     observations TEXT,
     delivery_notification_due_at TIMESTAMPTZ,
