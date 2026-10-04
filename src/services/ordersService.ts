@@ -17,6 +17,8 @@ export interface Order {
   status: 'pending' | 'preparing' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled';
   fulfillment_type?: 'pickup' | 'delivery';
   address?: string;
+  stock_restored?: boolean;
+  already_cancelled?: boolean;
   notes?: string;
   created_at?: string;
   scheduled_for?: string;

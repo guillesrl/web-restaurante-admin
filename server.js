@@ -11,6 +11,7 @@ import { fileURLToPath } from 'url';
 import { z } from 'zod';
 import { authEnabled, createToken, checkPassword, requireAuth } from './auth.js';
 import { notifyTelegram, telegramEnabled } from './notify.js';
+import { cancelPendingOrder } from './orderCancellation.js';
 
 dotenv.config();
 
@@ -59,9 +60,9 @@ const orderSchema = z.object({
   customer_name: z.string().min(1).max(255),
   customer_phone: z.string().optional(),
   items: z.array(z.object({
-    id: z.number(),
-    name: z.string(),
-    price: z.number(),
+    id: z.number().int().positive(),
+    name: z.string().min(1).max(255),
+    price: z.number().nonnegative(),
     quantity: z.number().int().min(1),
   })).min(1),
   total: z.number().positive(),
@@ -416,30 +417,18 @@ async function confirmAgentOrderCancellation(payload, res) {
       if (confirmation) await client.query('DELETE FROM agent_order_cancellation_confirmations WHERE token=$1', [parsed.data.cancellation_token]);
       throw agentError('CANCELLATION_CONFIRMATION_EXPIRED', 'La confirmación ha caducado; hay que volver a revisar el pedido', undefined, 409);
     }
-    if (confirmation.status !== 'pending') {
-      throw agentError('ORDER_CANNOT_BE_CANCELLED', 'El pedido ya no está pendiente; debe revisarlo el restaurante', { status: confirmation.status }, 409);
-    }
-
-    const items = Array.isArray(confirmation.items) ? confirmation.items : [];
-    for (const item of items) {
-      const itemId = Number(item?.id);
-      const quantity = Number(item?.quantity);
-      if (Number.isInteger(itemId) && Number.isInteger(quantity) && quantity > 0) {
-        await client.query('UPDATE menu SET stock = stock + $1, updated_at=NOW() WHERE id=$2', [quantity, itemId]);
-      }
-    }
-
-    const { rows } = await client.query(
-      `UPDATE orders
-       SET status='cancelled', updated_at=NOW(),
-           delivery_notification_due_at=NULL, delivery_notification_claimed_at=NULL
-       WHERE id=$1
-       RETURNING *`,
-      [confirmation.id]
-    );
+    const cancellation = await cancelPendingOrder(client, confirmation, 'agent');
     await client.query('DELETE FROM agent_order_cancellation_confirmations WHERE token=$1', [parsed.data.cancellation_token]);
     await client.query('COMMIT');
-    return res.json({ success: true, data: { order_id: rows[0].id, status: 'cancelled', stock_restored: true } });
+    return res.json({
+      success: true,
+      data: {
+        order_id: cancellation.order.id,
+        status: 'cancelled',
+        stock_restored: cancellation.stockRestored,
+        already_cancelled: cancellation.alreadyCancelled,
+      },
+    });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     if (err.code && err.statusCode) {
@@ -567,8 +556,8 @@ app.post('/api/agent/orders', agentOrderLimiter, requireAgentOrderKey, async (re
     const { rows: createdOrders } = await client.query(
       `INSERT INTO orders (
         nombre, telefono, direccion, items, total, status, time,
-        source, fulfillment_type, scheduled_for, observations
-      ) VALUES ($1, $2, $3, $4, $5, 'pending', $6, 'openlivery', $7, $8, $9)
+        source, fulfillment_type, scheduled_for, observations, stock_reserved_at
+      ) VALUES ($1, $2, $3, $4, $5, 'pending', $6, 'openlivery', $7, $8, $9, NOW())
       RETURNING *`,
       [
         order.customer_name,
@@ -755,6 +744,7 @@ app.get('/api/orders', async (req, res) => {
 });
 
 app.post('/api/orders', async (req, res) => {
+  const client = await pool.connect();
   try {
     const v = orderSchema.safeParse(req.body);
     if (!v.success) return res.status(400).json({ success: false, error: v.error.errors.map(e => e.message).join(', ') });
@@ -763,28 +753,72 @@ app.post('/api/orders', async (req, res) => {
       customer_name,
       customer_phone,
       items,
-      total,
       fulfillment_type = 'delivery',
-      status = 'pending',
     } = v.data;
-    const { rows } = await pool.query(
-      `INSERT INTO orders (nombre, telefono, direccion, items, total, status, fulfillment_type)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+    await client.query('BEGIN');
+    const itemIds = [...new Set(items.map((item) => item.id))].sort((a, b) => a - b);
+    const { rows: menuItems } = await client.query(
+      `SELECT id, nombre, precio, stock
+       FROM menu
+       WHERE id = ANY($1::int[])
+       ORDER BY id
+       FOR UPDATE`,
+      [itemIds]
+    );
+    if (menuItems.length !== itemIds.length) {
+      throw agentError('ITEM_NOT_FOUND', 'Uno de los artículos ya no existe en el menú', undefined, 409);
+    }
+
+    const requestedById = new Map();
+    for (const item of items) {
+      const previous = requestedById.get(item.id);
+      requestedById.set(item.id, (previous || 0) + item.quantity);
+    }
+    const lines = menuItems.map((item) => {
+      const quantity = requestedById.get(item.id);
+      if (Number(item.stock) < quantity) {
+        throw agentError('INSUFFICIENT_STOCK', `No hay stock suficiente para ${item.nombre}`, undefined, 409);
+      }
+      const price = parseMenuPrice(item.precio);
+      if (!Number.isFinite(price)) {
+        throw agentError('INVALID_MENU_PRICE', `El precio de ${item.nombre} no es válido`, undefined, 500);
+      }
+      return { id: item.id, name: item.nombre, price, quantity };
+    });
+    const calculatedTotal = Math.round(lines.reduce((sum, item) => sum + item.price * item.quantity, 0) * 100) / 100;
+    for (const line of lines) {
+      await client.query(
+        'UPDATE menu SET stock = stock - $1, updated_at=NOW() WHERE id=$2',
+        [line.quantity, line.id]
+      );
+    }
+
+    const { rows } = await client.query(
+      `INSERT INTO orders (
+        nombre, telefono, direccion, items, total, status, fulfillment_type,
+        source, stock_reserved_at
+      ) VALUES ($1, $2, $3, $4, $5, 'pending', $6, 'dashboard', NOW()) RETURNING *`,
       [
         customer_name,
         customer_phone,
         fulfillment_type === 'pickup' ? 'Recogida' : 'Dirección no especificada',
-        JSON.stringify(items),
-        total,
-        status,
+        JSON.stringify(lines),
+        calculatedTotal,
         fulfillment_type,
       ]
     );
+    await client.query('COMMIT');
     res.json({ success: true, data: mapOrder(rows[0]) });
-    notifyTelegram(`🧾 <b>Nuevo pedido</b>\n${customer_name}\n${items.length} artículo(s) · ${total.toFixed(2)}€`);
+    notifyTelegram(`🧾 <b>Nuevo pedido</b>\n${customer_name}\n${lines.length} artículo(s) · ${calculatedTotal.toFixed(2)}€`);
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    if (err.code && err.statusCode) {
+      return res.status(err.statusCode).json({ success: false, error: err.message, code: err.code, details: err.details });
+    }
     console.error('❌ Error en POST /api/orders:', err.message);
     res.status(500).json({ success: false, error: err.message });
+  } finally {
+    client.release();
   }
 });
 
@@ -807,6 +841,21 @@ app.patch('/api/orders/:id/status', async (req, res) => {
 
     const previous = current.rows[0];
     let result;
+    if (status === 'cancelled') {
+      const cancellation = await cancelPendingOrder(client, previous, 'dashboard');
+      await client.query('COMMIT');
+      return res.json({
+        success: true,
+        data: { ...mapOrder(cancellation.order), stock_restored: cancellation.stockRestored, already_cancelled: cancellation.alreadyCancelled },
+      });
+    }
+    if (previous.status === 'cancelled') {
+      throw agentError('ORDER_ALREADY_CANCELLED', 'Un pedido cancelado no puede cambiar de estado', { status: previous.status }, 409);
+    }
+    if (status === 'pending' && previous.status !== 'pending') {
+      throw agentError('ORDER_CANNOT_REOPEN', 'Un pedido que ya está en marcha no puede volver a pendiente', { status: previous.status }, 409);
+    }
+
     const isPickup = previous.fulfillment_type === 'pickup' ||
       (!previous.fulfillment_type && String(previous.direccion || '').trim().toLowerCase() === 'recogida');
 
@@ -845,6 +894,9 @@ app.patch('/api/orders/:id/status', async (req, res) => {
     res.json({ success: true, data: mapOrder(rows[0]) });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
+    if (err.code && err.statusCode) {
+      return res.status(err.statusCode).json({ success: false, error: err.message, code: err.code, details: err.details });
+    }
     console.error('❌ Error en PATCH /api/orders/:id/status:', err.message);
     res.status(500).json({ success: false, error: err.message });
   } finally {
@@ -940,6 +992,10 @@ async function ensureAgentOrderColumns() {
       ADD COLUMN IF NOT EXISTS fulfillment_type VARCHAR(20),
       ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS observations TEXT,
+      ADD COLUMN IF NOT EXISTS stock_reserved_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS stock_restored_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS cancelled_by VARCHAR(50),
       ADD COLUMN IF NOT EXISTS delivery_notification_due_at TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS delivery_notification_claimed_at TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS delivery_notification_sent_at TIMESTAMPTZ
@@ -954,6 +1010,12 @@ async function ensureAgentOrderColumns() {
     END
     WHERE fulfillment_type IS NULL
        OR fulfillment_type NOT IN ('pickup', 'delivery')
+  `);
+  await pool.query(`
+    UPDATE orders
+    SET stock_reserved_at = created_at
+    WHERE stock_reserved_at IS NULL
+      AND source = 'openlivery'
   `);
   await pool.query(`
     UPDATE orders

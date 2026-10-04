@@ -132,6 +132,10 @@ CREATE TABLE orders (
     fulfillment_type VARCHAR(20), -- pickup | delivery
     scheduled_for TIMESTAMPTZ,
     observations TEXT,
+    stock_reserved_at TIMESTAMPTZ,
+    stock_restored_at TIMESTAMPTZ,
+    cancelled_at TIMESTAMPTZ,
+    cancelled_by VARCHAR(50), -- agent | dashboard
     delivery_notification_due_at TIMESTAMPTZ,
     delivery_notification_claimed_at TIMESTAMPTZ,
     delivery_notification_sent_at TIMESTAMPTZ,
@@ -283,17 +287,22 @@ modificar stock directamente. Para clientes de herramientas HTTP que no
 admiten arrays anidados, el `POST` también acepta un único campo `order_json`
 con el JSON completo del pedido.
 
-#### Cancelación en dos pasos
+#### Cancelación y reposición de stock
 
-La misma ruta evita cancelar un pedido por accidente:
+Todo pedido creado por Leandro o desde el dashboard reserva stock en la misma
+transacción. Una cancelación solo es válida mientras está `pending`; devuelve
+el stock reservado una única vez y deja constancia de su origen (`agent` o
+`dashboard`). El dashboard muestra antes un resumen y requiere confirmación.
+
+Para Leandro, la misma ruta evita cancelar un pedido por accidente:
 
 1. `{"action":"prepare_cancel","order_id":9,"customer_phone":"615808"}`
    valida que el pedido esté pendiente y devuelve un resumen junto con un token
    temporal. No modifica el pedido ni el stock.
 2. Solo después de una nueva confirmación explícita del cliente, se envía
    `{"action":"confirm_cancel","cancellation_token":"<token>"}`. Entonces
-   cambia el pedido a `cancelled`, repone el stock y anula cualquier aviso de
-   pedido listo pendiente.
+   cambia el pedido a `cancelled`, repone el stock reservado y anula cualquier
+   aviso de pedido listo pendiente.
 
 La acción directa `{"action":"cancel"}` se rechaza. El teléfono puede ser un
 número local de Andorra de seis dígitos; el prefijo `+376` es opcional.

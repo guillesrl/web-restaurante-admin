@@ -38,6 +38,7 @@ function OrdersManagementComponent() {
   const [quantity, setQuantity] = useState("1");
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [orderPeriod, setOrderPeriod] = useState<OrderPeriod>('today');
+  const [orderPendingCancellation, setOrderPendingCancellation] = useState<Order | null>(null);
 
   const statusOptions = [
     { value: "pending", label: "Pendiente", color: "bg-yellow-500" },
@@ -207,6 +208,37 @@ function OrdersManagementComponent() {
         description: "No se pudo actualizar el estado",
         variant: "destructive"
       });
+    }
+  };
+
+  const handleStatusSelection = (order: Order, newStatus: Order['status']) => {
+    if (newStatus !== 'cancelled') {
+      handleUpdateOrderStatus(order.id!, newStatus);
+      return;
+    }
+    if (order.status !== 'pending') {
+      toast({
+        title: "No se puede cancelar",
+        description: "Solo los pedidos pendientes pueden cancelarse.",
+        variant: "destructive"
+      });
+      return;
+    }
+    setOrderPendingCancellation(order);
+  };
+
+  const confirmCancellation = async () => {
+    if (!orderPendingCancellation?.id) return;
+    try {
+      const updated = await updateOrderStatus.mutateAsync({ id: orderPendingCancellation.id, status: 'cancelled' });
+      setOrderPendingCancellation(null);
+      toast({
+        title: updated?.stock_restored ? "Pedido cancelado y stock repuesto" : "Pedido cancelado",
+        description: `Pedido #${orderPendingCancellation.id} cancelado correctamente.`
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "No se pudo cancelar el pedido";
+      toast({ title: "No se pudo cancelar", description: message, variant: "destructive" });
     }
   };
 
@@ -403,6 +435,40 @@ function OrdersManagementComponent() {
           </Dialog>
         </div>
       </CardHeader>
+      <Dialog
+        open={Boolean(orderPendingCancellation)}
+        onOpenChange={(open) => !open && setOrderPendingCancellation(null)}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>¿Cancelar pedido #{orderPendingCancellation?.id}?</DialogTitle>
+            <DialogDescription>
+              Solo se puede cancelar mientras está pendiente. El stock reservado se repondrá automáticamente.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 text-sm">
+            <div className="font-medium">{orderPendingCancellation?.customer_name}</div>
+            {orderPendingCancellation?.items.map((item, index) => (
+              <div key={index} className="flex justify-between text-muted-foreground">
+                <span>{item.quantity}x {item.name}</span>
+                <span>{formatCurrency(parseNumber(item.price) * item.quantity)}</span>
+              </div>
+            ))}
+            <div className="flex justify-between border-t pt-2 font-bold">
+              <span>Total</span>
+              <span>{formatCurrency(orderPendingCancellation?.total || 0)}</span>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setOrderPendingCancellation(null)} disabled={updateOrderStatus.isPending}>
+              Volver
+            </Button>
+            <Button variant="destructive" onClick={confirmCancellation} disabled={updateOrderStatus.isPending}>
+              {updateOrderStatus.isPending ? 'Cancelando…' : 'Confirmar cancelación'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
         <div className="mb-4 flex flex-wrap gap-2" aria-label="Filtrar pedidos por período">
           <Button size="sm" variant={orderPeriod === 'today' ? 'default' : 'outline'} onClick={() => setOrderPeriod('today')}>
@@ -470,13 +536,15 @@ function OrdersManagementComponent() {
                   <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                     <Select
                       value={order.status}
-                      onValueChange={(value: Order['status']) => handleUpdateOrderStatus(order.id, value)}
+                      onValueChange={(value: Order['status']) => handleStatusSelection(order, value)}
                     >
                       <SelectTrigger className="w-[140px]">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {statusOptions.map(option => (
+                        {statusOptions
+                          .filter(option => option.value !== 'cancelled' || order.status === 'pending' || order.status === 'cancelled')
+                          .map(option => (
                           <SelectItem key={option.value} value={option.value}>
                             {option.label}
                           </SelectItem>
