@@ -262,6 +262,11 @@ automáticamente; no hace falta ni se recomienda usar una reconstrucción forzad
 para cambios normales. Verifica el resultado comparando el commit desplegado en
 EasyPanel con el commit enviado a GitHub.
 
+Mantén **un único webhook activo** de GitHub para este servicio. Dos webhooks
+apuntando al mismo destino disparan despliegues duplicados y pueden dejar builds
+en cola o con errores aparentes. Tras recrear la integración de EasyPanel,
+verifica en GitHub que el webhook anterior ya no siga activo.
+
 ### Notas sobre el build con Nixpacks (EasyPanel)
 
 - EasyPanel usa Nixpacks que genera un Dockerfile automáticamente con Node 20.18.1 y npm 10.8.2.
@@ -394,6 +399,12 @@ Cada sección (pedidos, reservas, menú) incluye botones para exportar a PDF y E
 - Si aparece "Cannot find package X" durante el build, verificar que X no sea devDependency importada estáticamente en `vite.config.ts` (ver nota Nixpacks arriba).
 - Si aparece "Missing: esbuild@X.X.X from lock file", el lockfile está desincronizado con las peer deps. Verificar `.npmrc` tiene `legacy-peer-deps=true`.
 - `pg` es el driver principal de la base de datos: NO lo elimines de `package.json`. Solo aplica a módulos nativos realmente no usados (p. ej. `sqlite3`).
+
+### Dos despliegues por cada push
+- Revisa los webhooks del repositorio en GitHub. Debe haber un solo webhook activo
+  de tipo `push` para el servicio de EasyPanel.
+- Elimina únicamente el webhook duplicado después de comprobar que el otro recibió
+  correctamente la última entrega y que el commit desplegado coincide con GitHub.
 
 ### Error "Cannot GET /"
 - Asegúrate de haber ejecutado `npm run build` para generar la carpeta `/dist`
