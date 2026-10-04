@@ -313,7 +313,7 @@ function OrdersManagementComponent({ role = 'owner' }: { role?: DashboardRole })
             </Button>
             <Button variant="outline" size="sm" onClick={() => exportOrdersToExcel(visibleOrders, 'Reporte de Pedidos')}>
               <FileDown className="h-4 w-4 mr-2" />
-              Excel
+              CSV
             </Button>
           </div>
           {canCreateOrders && <Dialog open={dialogOpen} onOpenChange={(open) => {

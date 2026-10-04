@@ -18,7 +18,7 @@ Panel de administración para restaurante con gestión de menú, pedidos y reser
 - **Trazabilidad operativa**: Historial de actividad para propietario sobre pedidos, usuarios, menú y reservas
 - **Copias y recuperación**: Exportación diaria cifrada a S3 compatible y restauración controlada en una rama aislada de Neon
 - **Analíticas**: KPIs (ticket promedio, plato estrella, hora pico, tasa de cancelación) + 4 gráficos interactivos
-- **Exportación**: Reportes en PDF y Excel para pedidos, reservas y menú
+- **Exportación**: Reportes en PDF y CSV compatible con Excel para pedidos, reservas y menú
 - **Seguridad**: Helmet, rate-limiting, logging con Morgan y validación con Zod en el servidor
 - **Server-side Rendering**: Express sirve tanto API como frontend estático
 
@@ -33,7 +33,7 @@ Panel de administración para restaurante con gestión de menú, pedidos y reser
 - **Lucide React** - Iconos
 - **React Query** - Gestión de estado del servidor con cache automático e invalidación inteligente
 - **jsPDF + jspdf-autotable** - Exportación de reportes a PDF
-- **xlsx** - Exportación de reportes a Excel
+- **CSV nativo** - Exportación compatible con Excel sin dependencias de procesamiento de hojas de cálculo
 - **Vitest + Testing Library** - Tests unitarios y de componentes
 - **ErrorBoundary + ChunkErrorBoundary** - Captura de errores en árbol de componentes y fallos de carga de red
 
@@ -241,8 +241,8 @@ Este proyecto está configurado para correr en **un solo servicio** (recomendado
 
 ### Build Command
 ```bash
-npm ci
-npm run build
+npm ci --include=dev
+npm run build && npm prune --omit=dev
 ```
 
 ### Start Command
@@ -287,8 +287,9 @@ verifica en GitHub que el webhook anterior ya no siga activo.
 ### Notas sobre el build con Nixpacks (EasyPanel)
 
 - EasyPanel usa Nixpacks que genera un Dockerfile automáticamente con Node 20.18.1 y npm 10.8.2.
-- `NODE_ENV=production` hace que `npm ci` omita las devDependencies, por lo que ningún devDependency puede ser importado estáticamente en `vite.config.ts`.
-- `rollup-plugin-visualizer` (solo para análisis local con `npm run analyze`) se importa de forma dinámica para evitar este error.
+- El build usa `npm ci --include=dev` para disponer de Vite, React y el resto de herramientas de compilación; después `npm prune --omit=dev` elimina esas dependencias antes de arrancar Express.
+- Las dependencias del navegador y de build están en `devDependencies`; el runtime conserva solo Express, PostgreSQL, seguridad, validación y S3.
+- `rollup-plugin-visualizer` (solo para análisis local con `npm run analyze`) se importa de forma dinámica.
 - El archivo `.npmrc` incluye `legacy-peer-deps=true` para que npm v10 no falle por conflictos de peer dependencies entre `vitest@4.x` y `vite@5.x`.
 - `pg` (driver de PostgreSQL) es dependencia obligatoria y compila sin problemas en la imagen. Evita añadir módulos nativos que NO uses (p. ej. `sqlite3`), que requieren herramientas de compilación ausentes.
 
@@ -391,7 +392,7 @@ puede activar cuando exista una plantilla Meta específica aprobada.
 El dashboard usa React Query para cache automático con `staleTime: 30s`, invalidación tras mutaciones y una consulta periódica cada 15 segundos a la API propia. Así se reflejan los cambios creados por el dashboard, el agente y los flujos externos sin exponer una conexión de base de datos al navegador.
 
 ### Exportación de Reportes
-Cada sección (pedidos, reservas, menú) incluye botones para exportar a PDF y Excel con datos filtrados y nombres de archivo con fecha.
+Cada sección (pedidos, reservas, menú) incluye botones para exportar a PDF y CSV UTF-8 con datos filtrados y nombres de archivo con fecha. El CSV se abre directamente con Excel y evita incluir un motor de hojas de cálculo en el navegador.
 
 ### Variables de Entorno Soportadas
 - `DATABASE_URL`: Cadena de conexión a PostgreSQL (obligatoria)
@@ -419,7 +420,7 @@ Cada sección (pedidos, reservas, menú) incluye botones para exportar a PDF y E
 - En EasyPanel, agrega `.nvmrc` con `20` o configura `NODE_VERSION=20`
 
 ### Error `npm ci` en Docker: "Missing from lock file" o módulo no encontrado
-- Si aparece "Cannot find package X" durante el build, verificar que X no sea devDependency importada estáticamente en `vite.config.ts` (ver nota Nixpacks arriba).
+- EasyPanel debe instalar con `npm ci --include=dev` y ejecutar `npm run build && npm prune --omit=dev`; con otro comando pueden faltar herramientas de compilación.
 - Si aparece "Missing: esbuild@X.X.X from lock file", el lockfile está desincronizado con las peer deps. Verificar `.npmrc` tiene `legacy-peer-deps=true`.
 - `pg` es el driver principal de la base de datos: NO lo elimines de `package.json`. Solo aplica a módulos nativos realmente no usados (p. ej. `sqlite3`).
 
@@ -481,7 +482,7 @@ coordina una ventana de mantenimiento: el script se niega a ejecutarse con
 - El servidor Express sirve tanto API como frontend (SPA routing)
 - React Query gestiona el estado del servidor con hooks personalizados en `src/hooks/use-queries.ts`
 - Los cambios de menú, pedidos y reservas se consultan mediante la API propia y `src/hooks/use-queries.ts`
-- La exportación a PDF/Excel usa jspdf y xlsx desde `src/lib/export.ts`
+- La exportación a PDF/CSV usa jspdf y APIs nativas del navegador desde `src/lib/export.ts`
 - ChunkErrorBoundary maneja fallos de carga de red con mensaje amigable
 - To update dependencies, use `npm update` and check for breaking changes
 

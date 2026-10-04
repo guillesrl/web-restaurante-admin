@@ -196,7 +196,7 @@ function MenuManagementComponent() {
             </Button>
             <Button variant="outline" size="sm" onClick={() => exportMenuToExcel(menuItems, 'Reporte del Menú')}>
               <FileDown className="h-4 w-4 mr-2" />
-              Excel
+              CSV
             </Button>
           </div>
           <Dialog open={dialogOpen} onOpenChange={(open) => {

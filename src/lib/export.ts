@@ -1,10 +1,23 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import * as XLSX from 'xlsx';
 import { Order } from '@/services/ordersService';
 import { Reservation } from '@/services/reservationsService';
 import { MenuItem } from '@/services/menuService';
 import { formatCurrency, parseNumber } from '@/lib/utils';
+
+function downloadCsv(rows: Record<string, string | number>[], filename: string) {
+  const columns = Object.keys(rows[0] || {});
+  const escape = (value: string | number) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+  const content = [columns, ...rows.map((row) => columns.map((column) => row[column] ?? ''))]
+    .map((line) => line.map(escape).join(';'))
+    .join('\r\n');
+  const url = URL.createObjectURL(new Blob([`\uFEFF${content}`], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
 
 export function exportOrdersToPDF(orders: Order[], title: string) {
   const doc = new jsPDF();
@@ -44,10 +57,7 @@ export function exportOrdersToExcel(orders: Order[], title: string) {
     Hora: o.time || '-'
   }));
 
-  const ws = XLSX.utils.json_to_sheet(data);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Pedidos');
-  XLSX.writeFile(wb, `${title.toLowerCase().replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.xlsx`);
+  downloadCsv(data, `${title.toLowerCase().replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.csv`);
 }
 
 export function exportReservationsToPDF(reservations: Reservation[], title: string) {
@@ -85,10 +95,7 @@ export function exportReservationsToExcel(reservations: Reservation[], title: st
     Estado: r.status
   }));
 
-  const ws = XLSX.utils.json_to_sheet(data);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Reservas');
-  XLSX.writeFile(wb, `${title.toLowerCase().replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.xlsx`);
+  downloadCsv(data, `${title.toLowerCase().replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.csv`);
 }
 
 export function exportMenuToPDF(menuItems: MenuItem[], title: string) {
@@ -122,8 +129,5 @@ export function exportMenuToExcel(menuItems: MenuItem[], title: string) {
     Disponible: m.available ? 'Sí' : 'No'
   }));
 
-  const ws = XLSX.utils.json_to_sheet(data);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Menú');
-  XLSX.writeFile(wb, `${title.toLowerCase().replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.xlsx`);
+  downloadCsv(data, `${title.toLowerCase().replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.csv`);
 }

@@ -196,7 +196,7 @@ export function ReservationsManagement({ reservations, isLoading }: Reservations
               </Button>
               <Button variant="outline" size="sm" onClick={() => exportReservationsToExcel(reservations, 'Reporte de Reservas')}>
                 <FileDown className="h-4 w-4 mr-1" />
-                XLS
+                CSV
               </Button>
             </div>
             <Dialog open={dialogOpen} onOpenChange={(open) => {
