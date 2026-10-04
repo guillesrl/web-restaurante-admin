@@ -2,7 +2,7 @@ import { useState, Suspense, lazy, useMemo, useEffect } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChefHat, ShoppingCart, Calendar, TrendingUp, Moon, Sun, BarChart3, LogOut, Users } from "lucide-react";
+import { ChefHat, ShoppingCart, Calendar, TrendingUp, Moon, Sun, BarChart3, LogOut, Users, ScrollText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { useDashboardAuth } from "@/components/AuthGate";
@@ -14,6 +14,7 @@ import { StockAlertsPanel } from "@/components/StockAlertsPanel";
 import { cargarDatosDashboard, calcularEstadisticas, DatosDashboard } from "@/lib/rutinas";
 import { formatCurrency } from "@/lib/utils";
 import { UsersManagement } from "@/components/UsersManagement";
+import { AuditLog } from "@/components/AuditLog";
 
 const MenuManagement = lazy(() => import("@/components/MenuManagement").then(m => ({ default: m.MenuManagement })));
 const OrdersManagement = lazy(() => import("@/components/OrdersManagement").then(m => ({ default: m.OrdersManagement })));
@@ -31,6 +32,7 @@ const TabLoader = () => (
 const Index = () => {
   const [activeTab, setActiveTab] = useState("reservations");
   const [usersDialogOpen, setUsersDialogOpen] = useState(false);
+  const [auditDialogOpen, setAuditDialogOpen] = useState(false);
   const { theme, setTheme } = useTheme();
   const isMobile = useIsMobile();
   const { user, logout } = useDashboardAuth();
@@ -81,10 +83,16 @@ const Index = () => {
                 <span className="sr-only">Toggle theme</span>
               </Button>
               {isOwner && user && (
-                <Button variant="outline" size="icon" onClick={() => setUsersDialogOpen(true)} title="Usuarios y permisos">
-                  <Users className="h-5 w-5" />
-                  <span className="sr-only">Usuarios y permisos</span>
-                </Button>
+                <>
+                  <Button variant="outline" size="icon" onClick={() => setAuditDialogOpen(true)} title="Historial de actividad">
+                    <ScrollText className="h-5 w-5" />
+                    <span className="sr-only">Historial de actividad</span>
+                  </Button>
+                  <Button variant="outline" size="icon" onClick={() => setUsersDialogOpen(true)} title="Usuarios y permisos">
+                    <Users className="h-5 w-5" />
+                    <span className="sr-only">Usuarios y permisos</span>
+                  </Button>
+                </>
               )}
               {user && (
                 <Button
@@ -303,6 +311,9 @@ const Index = () => {
       </div>
       <Dialog open={usersDialogOpen} onOpenChange={setUsersDialogOpen}>
         <DialogContent className="max-w-2xl"><UsersManagement /></DialogContent>
+      </Dialog>
+      <Dialog open={auditDialogOpen} onOpenChange={setAuditDialogOpen}>
+        <DialogContent className="max-w-2xl"><AuditLog /></DialogContent>
       </Dialog>
     </div>
   );

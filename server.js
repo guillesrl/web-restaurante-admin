@@ -98,6 +98,9 @@ const loginSchema = z.object({
   email: z.string().trim().email().max(255).optional(),
   password: z.string().min(1).max(200),
 });
+const auditEventsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(200).default(100),
+});
 
 const agentOrderSchema = z.object({
   customer_name: z.string().trim().min(1).max(255),
@@ -788,6 +791,25 @@ app.get('/api/users', requireRole('owner'), async (req, res) => {
   }
 });
 
+app.get('/api/audit-events', requireRole('owner'), async (req, res) => {
+  const parsed = auditEventsQuerySchema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ success: false, error: 'Límite de auditoría no válido' });
+  try {
+    const { rows } = await pool.query(
+      `SELECT audit_events.*, dashboard_users.name AS actor_name, dashboard_users.email AS actor_email
+       FROM audit_events
+       LEFT JOIN dashboard_users ON dashboard_users.id = audit_events.actor_user_id
+       ORDER BY audit_events.created_at DESC, audit_events.id DESC
+       LIMIT $1`,
+      [parsed.data.limit]
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    console.error('❌ Error cargando auditoría:', err.message);
+    res.status(500).json({ success: false, error: 'No se pudo cargar el historial de auditoría' });
+  }
+});
+
 app.post('/api/users', requireRole('owner'), async (req, res) => {
   const parsed = dashboardUserSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ success: false, error: passwordPolicy });
@@ -795,20 +817,27 @@ app.post('/api/users', requireRole('owner'), async (req, res) => {
   if (!dashboardUsersConfigured && user.role !== 'owner') {
     return res.status(409).json({ success: false, error: 'La primera cuenta debe ser un propietario' });
   }
+  const client = await pool.connect();
   try {
     const passwordHash = await hashPassword(user.password);
-    const { rows } = await pool.query(
+    await client.query('BEGIN');
+    const { rows } = await client.query(
       `INSERT INTO dashboard_users (name, email, role, password_hash)
        VALUES ($1, lower($2), $3, $4)
        RETURNING id, name, email, role, is_active, created_at, updated_at`,
       [user.name, user.email, user.role, passwordHash]
     );
+    await recordAuditEvent(client, req, 'user.created', 'user', rows[0].id, { role: rows[0].role });
+    await client.query('COMMIT');
     dashboardUsersConfigured = true;
     res.status(201).json({ success: true, data: publicUser(rows[0]) });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     if (err.code === '23505') return res.status(409).json({ success: false, error: 'Ya existe un usuario con ese correo' });
     console.error('❌ Error creando usuario:', err.message);
     res.status(500).json({ success: false, error: 'No se pudo crear el usuario' });
+  } finally {
+    client.release();
   }
 });
 
@@ -852,6 +881,11 @@ app.patch('/api/users/:id', requireRole('owner'), async (req, res) => {
        RETURNING id, name, email, role, is_active, created_at, updated_at`,
       [changes.name || current.name, nextRole, nextActive, passwordHash, userId]
     );
+    await recordAuditEvent(client, req, 'user.updated', 'user', userId, {
+      role: nextRole,
+      is_active: nextActive,
+      password_changed: Boolean(changes.password),
+    });
     await client.query('COMMIT');
     res.json({ success: true, data: publicUser(rows[0]) });
   } catch (err) {
@@ -897,6 +931,7 @@ app.post('/api/menu', requireRole('owner'), async (req, res) => {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
       [name, category, price, stock, description, vegetariano || 'no', gluten || 'no', marisco || 'no', lactosa || 'no', vegano || 'no']
     );
+    await recordAuditEvent(pool, req, 'menu.created', 'menu', rows[0].id, { name: rows[0].nombre, stock: rows[0].stock });
     res.json({ success: true, data: mapMenuItem(rows[0]) });
   } catch (err) {
     console.error('❌ Error en POST /api/menu:', err.message);
@@ -916,6 +951,7 @@ app.put('/api/menu/:id', requireRole('owner'), async (req, res) => {
       [name, category, price, stock, description || ingredientes, vegetariano || 'no', gluten || 'no', marisco || 'no', lactosa || 'no', vegano || 'no', id]
     );
     if (!rows[0]) return res.status(404).json({ success: false, error: 'Not found' });
+    await recordAuditEvent(pool, req, 'menu.updated', 'menu', rows[0].id, { name: rows[0].nombre, stock: rows[0].stock });
     res.json({ success: true, data: mapMenuItem(rows[0]) });
     notifyLowStock(rows[0].nombre, stock, prev.rows[0]?.stock);
   } catch (err) {
@@ -927,7 +963,9 @@ app.put('/api/menu/:id', requireRole('owner'), async (req, res) => {
 app.delete('/api/menu/:id', requireRole('owner'), async (req, res) => {
   try {
     const { id } = req.params;
-    await pool.query('DELETE FROM menu WHERE id=$1', [id]);
+    const { rows } = await pool.query('DELETE FROM menu WHERE id=$1 RETURNING id, nombre', [id]);
+    if (!rows[0]) return res.status(404).json({ success: false, error: 'Not found' });
+    await recordAuditEvent(pool, req, 'menu.deleted', 'menu', rows[0].id, { name: rows[0].nombre });
     res.json({ success: true });
   } catch (err) {
     console.error('❌ Error en DELETE /api/menu/:id:', err.message);
@@ -945,6 +983,11 @@ app.patch('/api/menu/:id/stock', requireRole('owner'), async (req, res) => {
       [stock, id]
     );
     if (!rows[0]) return res.status(404).json({ success: false, error: 'Not found' });
+    await recordAuditEvent(pool, req, 'menu.stock_changed', 'menu', rows[0].id, {
+      name: rows[0].nombre,
+      from: prev.rows[0]?.stock,
+      to: rows[0].stock,
+    });
     res.json({ success: true, data: rows[0] });
     notifyLowStock(rows[0].nombre, stock, prev.rows[0]?.stock);
   } catch (err) {
@@ -1197,6 +1240,7 @@ app.post('/api/reservations', requireRole('owner'), async (req, res) => {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
       [customer_name, customer_phone || null, date, time, guests, null, status, notes]
     );
+    await recordAuditEvent(pool, req, 'reservation.created', 'reservation', rows[0].id, { date, time, status });
     res.json({ success: true, data: mapReservation(rows[0]) });
     notifyTelegram(`🗓️ <b>Nueva reserva</b>\n${customer_name} · ${guests} pers.\n${date} ${time}${notes ? `\n📝 ${notes}` : ''}`);
   } catch (err) {
@@ -1214,6 +1258,7 @@ app.patch('/api/reservations/:id/status', requireRole('owner'), async (req, res)
       [status, id]
     );
     if (!rows[0]) return res.status(404).json({ success: false, error: 'Reservation not found' });
+    await recordAuditEvent(pool, req, 'reservation.status_changed', 'reservation', rows[0].id, { status: rows[0].status });
     res.json({ success: true, data: mapReservation(rows[0]) });
   } catch (err) {
     console.error('❌ Error en PATCH /api/reservations/:id/status:', err.message);
@@ -1224,7 +1269,9 @@ app.patch('/api/reservations/:id/status', requireRole('owner'), async (req, res)
 app.delete('/api/reservations/:id', requireRole('owner'), async (req, res) => {
   try {
     const { id } = req.params;
-    await pool.query('DELETE FROM reservations WHERE id=$1', [id]);
+    const { rows } = await pool.query('DELETE FROM reservations WHERE id=$1 RETURNING id, date, time', [id]);
+    if (!rows[0]) return res.status(404).json({ success: false, error: 'Reservation not found' });
+    await recordAuditEvent(pool, req, 'reservation.deleted', 'reservation', rows[0].id, { date: rows[0].date, time: rows[0].time });
     res.json({ success: true });
   } catch (err) {
     console.error('❌ Error en DELETE /api/reservations/:id:', err.message);

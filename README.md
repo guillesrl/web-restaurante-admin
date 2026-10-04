@@ -15,6 +15,7 @@ Panel de administración para restaurante con gestión de menú, pedidos y reser
 - **Actualización automática**: React Query consulta la API cada 15 segundos, incluyendo pedidos creados por el agente y flujos externos
 - **Notificaciones Telegram**: Avisos a Telegram en nuevos pedidos, reservas y stock bajo (opcional, vía `TELEGRAM_BOT_TOKEN`)
 - **Usuarios y permisos**: Cuentas individuales con sesiones `HttpOnly`, roles de propietario, cocina y reparto
+- **Trazabilidad operativa**: Historial de actividad para propietario sobre pedidos, usuarios, menú y reservas
 - **Analíticas**: KPIs (ticket promedio, plato estrella, hora pico, tasa de cancelación) + 4 gráficos interactivos
 - **Exportación**: Reportes en PDF y Excel para pedidos, reservas y menú
 - **Seguridad**: Helmet, rate-limiting, logging con Morgan y validación con Zod en el servidor
@@ -165,8 +166,9 @@ CREATE TABLE dashboard_users (
 
 #### Tabla `audit_events`
 
-Registra el usuario, rol y momento de los pedidos creados, cambios de estado y
-cancelaciones efectuadas desde el dashboard.
+Registra usuario, rol y momento de las operaciones críticas realizadas desde el
+dashboard: pedidos, usuarios, menú y reservas. El propietario puede consultarlo
+desde el icono de historial en la cabecera.
 
 Tras desplegar desde la versión anterior, entra una última vez con la
 contraseña compartida y crea desde el botón de usuarios una cuenta de
@@ -290,6 +292,7 @@ propietario gestiona todo, cocina avanza a `Preparando` o `Listo`, y reparto a
 - `POST /api/logout` - Cierra la sesión actual
 - `GET /api/auth/me` - Devuelve el usuario de la sesión actual
 - `GET|POST|PATCH /api/users` - Gestión de usuarios, solo propietario
+- `GET /api/audit-events` - Historial de acciones, solo propietario
 
 ### Menú
 - `GET /api/menu` - Obtener todos los items

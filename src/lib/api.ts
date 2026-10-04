@@ -24,6 +24,19 @@ export interface DashboardUser {
   updated_at?: string;
 }
 
+export interface AuditEvent {
+  id: number;
+  actor_user_id: number | null;
+  actor_role: DashboardRole | null;
+  actor_name: string | null;
+  actor_email: string | null;
+  action: string;
+  entity_type: string;
+  entity_id: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
 class ApiClient {
   // Auth endpoints
   async getAuthStatus() {
@@ -55,6 +68,10 @@ class ApiClient {
 
   async updateUser(id: number, user: Partial<Pick<DashboardUser, 'name' | 'role' | 'is_active'>> & { password?: string }) {
     return this.request<DashboardUser>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(user) });
+  }
+
+  async getAuditEvents(limit = 100) {
+    return this.request<AuditEvent[]>(`/audit-events?limit=${limit}`);
   }
 
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
