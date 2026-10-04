@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
-import { Plus, Clock, CheckCircle, XCircle, AlertCircle, FileDown, ChevronRight, ChevronDown } from "lucide-react";
+import { Plus, Clock, CheckCircle, XCircle, AlertCircle, FileDown, ChevronRight, ChevronDown, Truck } from "lucide-react";
 import { formatCurrency, parseNumber } from "@/lib/utils";
 import { filterOrdersByPeriod, type OrderPeriod } from "@/lib/orderFilters";
 
@@ -31,6 +31,7 @@ function OrdersManagementComponent() {
     items: [] as Array<{menu_item_id: number, quantity: number}>,
     total: "",
     status: "pending" as const,
+    fulfillment_type: "delivery" as 'pickup' | 'delivery',
     notes: ""
   });
   const [selectedItem, setSelectedItem] = useState("");
@@ -42,6 +43,7 @@ function OrdersManagementComponent() {
     { value: "pending", label: "Pendiente", color: "bg-yellow-500" },
     { value: "preparing", label: "Preparando", color: "bg-blue-500" },
     { value: "ready", label: "Listo", color: "bg-green-500" },
+    { value: "out_for_delivery", label: "En reparto", color: "bg-violet-500" },
     { value: "delivered", label: "Entregado", color: "bg-gray-500" },
     { value: "cancelled", label: "Cancelado", color: "bg-red-500" }
   ];
@@ -105,6 +107,8 @@ function OrdersManagementComponent() {
       items: processedItems,
       total: typeof orderData.total === 'number' ? orderData.total : parseNumber(orderData.total),
       status: orderData.status || 'pending',
+      fulfillment_type: orderData.fulfillment_type === 'pickup' ? 'pickup' : 'delivery',
+      address: orderData.address || orderData.direccion || '',
       notes: orderData.notes || '',
       created_at: orderData.created_at || null,
       scheduled_for: orderData.scheduled_for || null,
@@ -167,6 +171,7 @@ function OrdersManagementComponent() {
         items: formData.items,
         total: calculateTotal(),
         status: 'pending' as const,
+        fulfillment_type: formData.fulfillment_type,
         notes: ''
       };
 
@@ -213,6 +218,7 @@ function OrdersManagementComponent() {
       items: [],
       total: "",
       status: "pending",
+      fulfillment_type: "delivery",
       notes: ""
     });
     setSelectedItem("");
@@ -224,6 +230,7 @@ function OrdersManagementComponent() {
       case 'pending': return <Clock className="h-4 w-4" />;
       case 'preparing': return <AlertCircle className="h-4 w-4" />;
       case 'ready': return <CheckCircle className="h-4 w-4" />;
+      case 'out_for_delivery': return <Truck className="h-4 w-4" />;
       case 'delivered': return <CheckCircle className="h-4 w-4" />;
       case 'cancelled': return <XCircle className="h-4 w-4" />;
       default: return <Clock className="h-4 w-4" />;
@@ -278,7 +285,7 @@ function OrdersManagementComponent() {
               <DialogHeader>
                 <DialogTitle>Nuevo Pedido</DialogTitle>
                 <DialogDescription>
-                  Crea un nuevo pedido de delivery
+                  Crea un pedido para recogida o a domicilio
                 </DialogDescription>
               </DialogHeader>
               <form onSubmit={handleSubmit} className="space-y-4">
@@ -311,6 +318,21 @@ function OrdersManagementComponent() {
                     onChange={(e) => setFormData({...formData, customer_email: e.target.value})}
                   />
                 </div>
+                <div>
+                  <Label htmlFor="fulfillment_type">Entrega</Label>
+                  <Select
+                    value={formData.fulfillment_type}
+                    onValueChange={(value: 'pickup' | 'delivery') => setFormData({...formData, fulfillment_type: value})}
+                  >
+                    <SelectTrigger id="fulfillment_type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="delivery">A domicilio</SelectItem>
+                      <SelectItem value="pickup">Recogida en local</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
                 <div className="space-y-2">
                   <Label>Añadir Items</Label>
@@ -322,7 +344,7 @@ function OrdersManagementComponent() {
                       <SelectContent>
                         {menuItems.map(item => (
                           <SelectItem key={item.id} value={item.id.toString()}>
-                            {item.name} - ${item.price}
+                            {item.name} - {formatCurrency(item.price)}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -424,7 +446,12 @@ function OrdersManagementComponent() {
                   <TableCell className="text-muted-foreground">
                     {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                   </TableCell>
-                  <TableCell className="font-medium">{order.customer_name}</TableCell>
+                  <TableCell className="font-medium">
+                    <div>{order.customer_name}</div>
+                    <div className="text-xs font-normal text-muted-foreground">
+                      {order.fulfillment_type === 'pickup' ? 'Recogida' : 'A domicilio'}
+                    </div>
+                  </TableCell>
                   <TableCell>{order.customer_phone}</TableCell>
                   <TableCell>
                     <Badge className={`${statusOptions.find(s => s.value === order.status)?.color || 'bg-gray-500'}`}>
@@ -476,6 +503,9 @@ function OrdersManagementComponent() {
                           <span>Total</span>
                           <span>{formatCurrency(order.total)}</span>
                         </div>
+                        {order.address && (
+                          <div className="text-sm text-muted-foreground max-w-sm">{order.address}</div>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

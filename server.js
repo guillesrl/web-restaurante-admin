@@ -65,10 +65,11 @@ const orderSchema = z.object({
     quantity: z.number().int().min(1),
   })).min(1),
   total: z.number().positive(),
-  status: z.enum(['pending', 'preparing', 'ready', 'delivered', 'cancelled']).optional(),
+  fulfillment_type: z.enum(['pickup', 'delivery']).optional(),
+  status: z.enum(['pending', 'preparing', 'ready', 'out_for_delivery', 'delivered', 'cancelled']).optional(),
 });
 
-const orderStatusSchema = z.enum(['pending', 'preparing', 'ready', 'delivered', 'cancelled']);
+const orderStatusSchema = z.enum(['pending', 'preparing', 'ready', 'out_for_delivery', 'delivered', 'cancelled']);
 
 const agentOrderSchema = z.object({
   customer_name: z.string().trim().min(1).max(255),
@@ -187,6 +188,8 @@ const mapOrder = (row) => {
     items: typeof row.items === 'string' ? JSON.parse(row.items) : row.items,
     total: parseFloat(row.total),
     status: row.status,
+    fulfillment_type: row.fulfillment_type,
+    address: row.direccion,
     notes: null,
     created_at: row.created_at,
     scheduled_for: row.scheduled_for,
@@ -756,11 +759,26 @@ app.post('/api/orders', async (req, res) => {
     const v = orderSchema.safeParse(req.body);
     if (!v.success) return res.status(400).json({ success: false, error: v.error.errors.map(e => e.message).join(', ') });
 
-    const { customer_name, customer_phone, items, total, status = 'pending' } = v.data;
+    const {
+      customer_name,
+      customer_phone,
+      items,
+      total,
+      fulfillment_type = 'delivery',
+      status = 'pending',
+    } = v.data;
     const { rows } = await pool.query(
-      `INSERT INTO orders (nombre, telefono, direccion, items, total, status)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [customer_name, customer_phone, 'Dirección no especificada', JSON.stringify(items), total, status]
+      `INSERT INTO orders (nombre, telefono, direccion, items, total, status, fulfillment_type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [
+        customer_name,
+        customer_phone,
+        fulfillment_type === 'pickup' ? 'Recogida' : 'Dirección no especificada',
+        JSON.stringify(items),
+        total,
+        status,
+        fulfillment_type,
+      ]
     );
     res.json({ success: true, data: mapOrder(rows[0]) });
     notifyTelegram(`🧾 <b>Nuevo pedido</b>\n${customer_name}\n${items.length} artículo(s) · ${total.toFixed(2)}€`);
@@ -789,7 +807,10 @@ app.patch('/api/orders/:id/status', async (req, res) => {
 
     const previous = current.rows[0];
     let result;
-    if (status === 'ready' && previous.status !== 'ready' && !previous.delivery_notification_sent_at) {
+    const isPickup = previous.fulfillment_type === 'pickup' ||
+      (!previous.fulfillment_type && String(previous.direccion || '').trim().toLowerCase() === 'recogida');
+
+    if (status === 'ready' && isPickup && previous.status !== 'ready' && !previous.delivery_notification_sent_at) {
       result = await client.query(
         `UPDATE orders
          SET status=$1,
@@ -922,6 +943,25 @@ async function ensureAgentOrderColumns() {
       ADD COLUMN IF NOT EXISTS delivery_notification_due_at TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS delivery_notification_claimed_at TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS delivery_notification_sent_at TIMESTAMPTZ
+  `);
+  // Los pedidos antiguos de OpenLivery ya guardaban "Recogida" o una dirección.
+  // Lo ambiguo se considera domicilio para no enviar por error un aviso de recogida.
+  await pool.query(`
+    UPDATE orders
+    SET fulfillment_type = CASE
+      WHEN lower(trim(COALESCE(direccion, ''))) = 'recogida' THEN 'pickup'
+      ELSE 'delivery'
+    END
+    WHERE fulfillment_type IS NULL
+       OR fulfillment_type NOT IN ('pickup', 'delivery')
+  `);
+  await pool.query(`
+    UPDATE orders
+    SET delivery_notification_due_at = NULL,
+        delivery_notification_claimed_at = NULL
+    WHERE fulfillment_type = 'delivery'
+      AND delivery_notification_sent_at IS NULL
+      AND (delivery_notification_due_at IS NOT NULL OR delivery_notification_claimed_at IS NOT NULL)
   `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS agent_order_cancellation_confirmations (

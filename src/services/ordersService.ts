@@ -14,7 +14,9 @@ export interface Order {
   customer_email?: string;
   items: OrderItem[];
   total: number;
-  status: 'pending' | 'preparing' | 'ready' | 'delivered' | 'cancelled';
+  status: 'pending' | 'preparing' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled';
+  fulfillment_type?: 'pickup' | 'delivery';
+  address?: string;
   notes?: string;
   created_at?: string;
   scheduled_for?: string;

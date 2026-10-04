@@ -7,7 +7,7 @@ Panel de administración para restaurante con gestión de menú, pedidos y reser
 - **Gestión de Menú**: CRUD completo para items del menú con categorías y stock
 - **Gestión de Pedidos**: Sistema de pedidos con estados y seguimiento
 - **Pedidos de OpenLivery**: El agente consulta menú y stock, crea pedidos de forma atómica y puede cancelar pedidos pendientes con confirmación en dos pasos
-- **Aviso de pedido listo**: Al marcar un pedido como `ready`, se programa un aviso de WhatsApp tras un minuto; al cambiarlo de estado antes del envío, el aviso se cancela
+- **Flujo de recogida y reparto**: `Listo` avisa por WhatsApp solo a pedidos de recogida; los pedidos a domicilio pasan después por `En reparto` y finalmente `Entregado`
 - **Horario de Andorra**: Fechas y horas operativas se muestran y almacenan para el negocio en `Europe/Andorra`
 - **Gestión de Reservas**: Sistema de reservas con filtro por fecha y actualización automática
 - **Base de Datos**: Neon PostgreSQL vía conexión directa (`DATABASE_URL`, driver `pg`)
@@ -129,7 +129,7 @@ CREATE TABLE orders (
     status VARCHAR(50) DEFAULT 'pending',
     time VARCHAR(10),
     source VARCHAR(50),
-    fulfillment_type VARCHAR(20),
+    fulfillment_type VARCHAR(20) NOT NULL DEFAULT 'delivery', -- pickup | delivery
     scheduled_for TIMESTAMPTZ,
     observations TEXT,
     delivery_notification_due_at TIMESTAMPTZ,
@@ -301,11 +301,16 @@ número local de Andorra de seis dígitos; el prefijo `+376` es opcional.
 ### Aviso de pedido listo
 
 El archivo `n8n/pedido-entregado-notificacion.json` contiene el flujo de n8n
-que se ejecuta cada minuto. Selecciona únicamente pedidos con estado `ready`,
-teléfono disponible y aviso vencido; envía la plantilla de WhatsApp aprobada y
-marca el aviso como enviado. El dashboard programa ese aviso al marcar `Listo`
-con una espera de un minuto, para permitir corregir un cambio accidental de
-estado.
+que se ejecuta cada minuto. Selecciona únicamente pedidos de **recogida** con
+estado `ready`, teléfono disponible y aviso vencido; envía la plantilla de
+WhatsApp aprobada y marca el aviso como enviado. El dashboard programa ese
+aviso al marcar `Listo` con una espera de un minuto, para permitir corregir un
+cambio accidental de estado.
+
+Para pedidos a domicilio, `Listo` significa que cocina ha terminado: no envía
+ningún mensaje al cliente. El operador cambia después a `En reparto` cuando el
+repartidor sale y a `Entregado` al finalizar. El aviso de “va en camino” se
+puede activar cuando exista una plantilla Meta específica aprobada.
 
 ### Reservas
 - `GET /api/reservations?filter=today|month` - Obtener reservas con filtros server-side

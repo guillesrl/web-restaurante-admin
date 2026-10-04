@@ -61,7 +61,7 @@
       {
         "parameters": {
           "operation": "executeQuery",
-          "query": "WITH claimable AS (\n  SELECT id\n  FROM orders\n  WHERE status = 'ready'\n    AND COALESCE(telefono, '') <> ''\n    AND delivery_notification_due_at <= NOW()\n    AND delivery_notification_sent_at IS NULL\n    AND (delivery_notification_claimed_at IS NULL OR delivery_notification_claimed_at < NOW() - INTERVAL '10 minutes')\n  ORDER BY delivery_notification_due_at ASC\n  LIMIT 20\n  FOR UPDATE SKIP LOCKED\n)\nUPDATE orders AS o\nSET delivery_notification_claimed_at = NOW()\nFROM claimable\nWHERE o.id = claimable.id\nRETURNING o.id, o.nombre, o.telefono, o.direccion, o.total",
+          "query": "WITH claimable AS (\n  SELECT id\n  FROM orders\n  WHERE status = 'ready'\n    AND fulfillment_type = 'pickup'\n    AND COALESCE(telefono, '') <> ''\n    AND delivery_notification_due_at <= NOW()\n    AND delivery_notification_sent_at IS NULL\n    AND (delivery_notification_claimed_at IS NULL OR delivery_notification_claimed_at < NOW() - INTERVAL '10 minutes')\n  ORDER BY delivery_notification_due_at ASC\n  LIMIT 20\n  FOR UPDATE SKIP LOCKED\n)\nUPDATE orders AS o\nSET delivery_notification_claimed_at = NOW()\nFROM claimable\nWHERE o.id = claimable.id\nRETURNING o.id, o.nombre, o.telefono, o.direccion, o.total",
           "options": {}
         },
         "id": "d6e5e6cf-65cb-48ed-85f2-c20d1a27db64",
