@@ -22,6 +22,13 @@ import {
 } from './auth.js';
 import { notifyTelegram, telegramEnabled } from './notify.js';
 import { cancelPendingOrder } from './orderCancellation.js';
+import {
+  backupConfiguration,
+  createBackup,
+  ensureBackupSchema,
+  listBackupRuns,
+  startBackupScheduler,
+} from './backupService.js';
 
 dotenv.config();
 
@@ -100,6 +107,9 @@ const loginSchema = z.object({
 });
 const auditEventsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(100),
+});
+const backupRunsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
 const agentOrderSchema = z.object({
@@ -810,6 +820,39 @@ app.get('/api/audit-events', requireRole('owner'), async (req, res) => {
   }
 });
 
+app.get('/api/backups', requireRole('owner'), async (req, res) => {
+  const parsed = backupRunsQuerySchema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ success: false, error: 'Límite de copias no válido' });
+  try {
+    const configuration = backupConfiguration();
+    const runs = await listBackupRuns(pool, parsed.data.limit);
+    res.json({ success: true, data: { enabled: configuration.enabled, missing: configuration.missing, runs } });
+  } catch (err) {
+    console.error('❌ Error cargando copias de seguridad:', err.message);
+    res.status(500).json({ success: false, error: 'No se pudo cargar el estado de las copias' });
+  }
+});
+
+app.post('/api/backups', requireRole('owner'), async (req, res) => {
+  try {
+    const backup = await createBackup(pool, 'manual');
+    await recordAuditEvent(pool, req, 'backup.created', 'backup', backup.id, {
+      source: 'manual',
+      size_bytes: backup.size_bytes,
+    });
+    res.status(201).json({ success: true, data: backup });
+  } catch (err) {
+    if (err.code === 'BACKUP_NOT_CONFIGURED') {
+      return res.status(503).json({ success: false, error: 'La copia externa no está configurada', missing: err.missing });
+    }
+    if (err.code === 'BACKUP_IN_PROGRESS') {
+      return res.status(409).json({ success: false, error: 'Ya hay una copia de seguridad en curso' });
+    }
+    console.error('❌ Error creando copia de seguridad:', err.code || err.message);
+    res.status(500).json({ success: false, error: 'No se pudo crear la copia de seguridad' });
+  }
+});
+
 app.post('/api/users', requireRole('owner'), async (req, res) => {
   const parsed = dashboardUserSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ success: false, error: passwordPolicy });
@@ -1372,6 +1415,8 @@ async function startServer() {
     await ensureAgentOrderColumns();
     await ensureDashboardUserSchema();
     await ensureAuditSchema();
+    await ensureBackupSchema(pool);
+    startBackupScheduler(pool);
     app.listen(port, () => {
       console.log(`✅ API server running on http://localhost:${port}`);
       console.log('📊 Database: Neon PostgreSQL');

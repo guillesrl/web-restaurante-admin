@@ -16,6 +16,7 @@ Panel de administración para restaurante con gestión de menú, pedidos y reser
 - **Notificaciones Telegram**: Avisos a Telegram en nuevos pedidos, reservas y stock bajo (opcional, vía `TELEGRAM_BOT_TOKEN`)
 - **Usuarios y permisos**: Cuentas individuales con sesiones `HttpOnly`, roles de propietario, cocina y reparto
 - **Trazabilidad operativa**: Historial de actividad para propietario sobre pedidos, usuarios, menú y reservas
+- **Copias y recuperación**: Exportación diaria cifrada a S3 compatible y restauración controlada en una rama aislada de Neon
 - **Analíticas**: KPIs (ticket promedio, plato estrella, hora pico, tasa de cancelación) + 4 gráficos interactivos
 - **Exportación**: Reportes en PDF y Excel para pedidos, reservas y menú
 - **Seguridad**: Helmet, rate-limiting, logging con Morgan y validación con Zod en el servidor
@@ -92,6 +93,16 @@ TELEGRAM_CHAT_ID=
 
 # API privada para el agente de pedidos (obligatoria si se conecta OpenLivery)
 AGENT_ORDER_API_KEY=
+
+# Copias de seguridad externas (opcionales, activan la copia diaria cifrada)
+AWS_ENDPOINT_URL_S3=
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+AWS_REGION=
+BACKUP_BUCKET=
+BACKUP_ENCRYPTION_KEY=
+# Opcional; por defecto, 24 horas
+BACKUP_INTERVAL_HOURS=24
 ```
 
 **Nota**: Para EasyPanel, usa las mismas variables en la configuración del servicio.
@@ -169,6 +180,12 @@ CREATE TABLE dashboard_users (
 Registra usuario, rol y momento de las operaciones críticas realizadas desde el
 dashboard: pedidos, usuarios, menú y reservas. El propietario puede consultarlo
 desde el icono de historial en la cabecera.
+
+#### Tabla `backup_runs`
+
+Registra el resultado de cada copia lógica cifrada. El archivo se guarda fuera
+de Neon y contiene los datos operativos del dashboard; no se suben secretos ni
+variables de entorno.
 
 Tras desplegar desde la versión anterior, entra una última vez con la
 contraseña compartida y crea desde el botón de usuarios una cuenta de
@@ -298,6 +315,8 @@ propietario gestiona todo, cocina avanza a `Preparando` o `Listo`, y reparto a
 - `GET /api/auth/me` - Devuelve el usuario de la sesión actual
 - `GET|POST|PATCH /api/users` - Gestión de usuarios, solo propietario
 - `GET /api/audit-events` - Historial de acciones, solo propietario
+- `GET /api/backups` - Estado y ejecuciones de copias, solo propietario
+- `POST /api/backups` - Crea una copia manual cifrada, solo propietario
 
 ### Menú
 - `GET /api/menu` - Obtener todos los items
@@ -381,6 +400,10 @@ Cada sección (pedidos, reservas, menú) incluye botones para exportar a PDF y E
 - `VITE_API_URL`: URL base de la API (default: `/api`)
 - `DASHBOARD_PASSWORD`: Contraseña compartida temporal para migrar la primera cuenta
 - `DASHBOARD_AUTH_SECRET`: Secreto largo y aleatorio para firmar sesiones
+- `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`: Acceso al almacenamiento S3 compatible
+- `BACKUP_BUCKET`: Bucket privado donde se guardan las copias cifradas
+- `BACKUP_ENCRYPTION_KEY`: Clave larga y aleatoria usada para cifrado AES-256-GCM; no la cambies mientras existan copias que quieras recuperar
+- `BACKUP_INTERVAL_HOURS`: Frecuencia de la copia automática (24 por defecto)
 - `TELEGRAM_BOT_TOKEN`: Token del bot para notificaciones (opcional)
 - `TELEGRAM_CHAT_ID`: Chat destino de las notificaciones (opcional)
 
@@ -399,6 +422,33 @@ Cada sección (pedidos, reservas, menú) incluye botones para exportar a PDF y E
 - Si aparece "Cannot find package X" durante el build, verificar que X no sea devDependency importada estáticamente en `vite.config.ts` (ver nota Nixpacks arriba).
 - Si aparece "Missing: esbuild@X.X.X from lock file", el lockfile está desincronizado con las peer deps. Verificar `.npmrc` tiene `legacy-peer-deps=true`.
 - `pg` es el driver principal de la base de datos: NO lo elimines de `package.json`. Solo aplica a módulos nativos realmente no usados (p. ej. `sqlite3`).
+
+### Copias y recuperación
+
+Neon permite restaurar la rama de producción a un punto anterior dentro de su
+ventana de historial. Antes de restaurar, usa su asistente de viaje en el tiempo
+o crea una rama desde el instante elegido para revisar los datos.
+
+Para una copia independiente, configura las seis variables S3 y de cifrado en
+EasyPanel. El dashboard iniciará una copia automática al arrancar si no existe
+otra dentro del intervalo configurado. El propietario puede comprobar el estado
+o crear una copia manual desde el icono de base de datos de la cabecera.
+
+La restauración de una copia externa se realiza **solo en una rama aislada de
+Neon**, nunca directamente en producción:
+
+```bash
+RESTORE_DATABASE_URL='postgresql://...rama-aislada...'
+RESTORE_CONFIRM=RESTORE_TO_ISOLATED_DATABASE \
+AWS_ENDPOINT_URL_S3=... AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... \
+AWS_REGION=... BACKUP_BUCKET=... BACKUP_ENCRYPTION_KEY=... \
+node scripts/restore-backup.mjs restaurant-dashboard/<archivo>.json.gz.enc
+```
+
+Después verifica pedidos, menú y usuarios en la rama aislada. Para cualquier
+restauración real de producción, valida primero el punto de recuperación y
+coordina una ventana de mantenimiento: el script se niega a ejecutarse con
+`NODE_ENV=production`.
 
 ### Dos despliegues por cada push
 - Revisa los webhooks del repositorio en GitHub. Debe haber un solo webhook activo

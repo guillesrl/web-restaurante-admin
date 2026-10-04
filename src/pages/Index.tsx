@@ -2,7 +2,7 @@ import { useState, Suspense, lazy, useMemo, useEffect } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChefHat, ShoppingCart, Calendar, TrendingUp, Moon, Sun, BarChart3, LogOut, Users, ScrollText } from "lucide-react";
+import { ChefHat, ShoppingCart, Calendar, TrendingUp, Moon, Sun, BarChart3, LogOut, Users, ScrollText, DatabaseBackup } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { useDashboardAuth } from "@/components/AuthGate";
@@ -15,6 +15,7 @@ import { cargarDatosDashboard, calcularEstadisticas, DatosDashboard } from "@/li
 import { formatCurrency } from "@/lib/utils";
 import { UsersManagement } from "@/components/UsersManagement";
 import { AuditLog } from "@/components/AuditLog";
+import { BackupsManagement } from "@/components/BackupsManagement";
 
 const MenuManagement = lazy(() => import("@/components/MenuManagement").then(m => ({ default: m.MenuManagement })));
 const OrdersManagement = lazy(() => import("@/components/OrdersManagement").then(m => ({ default: m.OrdersManagement })));
@@ -33,6 +34,7 @@ const Index = () => {
   const [activeTab, setActiveTab] = useState("reservations");
   const [usersDialogOpen, setUsersDialogOpen] = useState(false);
   const [auditDialogOpen, setAuditDialogOpen] = useState(false);
+  const [backupsDialogOpen, setBackupsDialogOpen] = useState(false);
   const { theme, setTheme } = useTheme();
   const isMobile = useIsMobile();
   const { user, logout } = useDashboardAuth();
@@ -84,6 +86,10 @@ const Index = () => {
               </Button>
               {isOwner && user && (
                 <>
+                  <Button variant="outline" size="icon" onClick={() => setBackupsDialogOpen(true)} title="Copias de seguridad">
+                    <DatabaseBackup className="h-5 w-5" />
+                    <span className="sr-only">Copias de seguridad</span>
+                  </Button>
                   <Button variant="outline" size="icon" onClick={() => setAuditDialogOpen(true)} title="Historial de actividad">
                     <ScrollText className="h-5 w-5" />
                     <span className="sr-only">Historial de actividad</span>
@@ -314,6 +320,9 @@ const Index = () => {
       </Dialog>
       <Dialog open={auditDialogOpen} onOpenChange={setAuditDialogOpen}>
         <DialogContent className="max-w-2xl"><AuditLog /></DialogContent>
+      </Dialog>
+      <Dialog open={backupsDialogOpen} onOpenChange={setBackupsDialogOpen}>
+        <DialogContent className="max-w-2xl"><BackupsManagement /></DialogContent>
       </Dialog>
     </div>
   );

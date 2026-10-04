@@ -37,6 +37,24 @@ export interface AuditEvent {
   created_at: string;
 }
 
+export interface BackupRun {
+  id: number;
+  source: 'automatic' | 'manual';
+  status: 'running' | 'completed' | 'failed';
+  object_key: string | null;
+  checksum_sha256: string | null;
+  size_bytes: number | null;
+  error_message: string | null;
+  started_at: string;
+  completed_at: string | null;
+}
+
+export interface BackupStatus {
+  enabled: boolean;
+  missing: string[];
+  runs: BackupRun[];
+}
+
 class ApiClient {
   // Auth endpoints
   async getAuthStatus() {
@@ -72,6 +90,14 @@ class ApiClient {
 
   async getAuditEvents(limit = 100) {
     return this.request<AuditEvent[]>(`/audit-events?limit=${limit}`);
+  }
+
+  async getBackups() {
+    return this.request<BackupStatus>('/backups');
+  }
+
+  async createBackup() {
+    return this.request<BackupRun>('/backups', { method: 'POST' });
   }
 
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
