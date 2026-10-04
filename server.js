@@ -464,6 +464,22 @@ function requireOrderStatusRole(req, res, next) {
   return res.status(403).json({ success: false, error: 'No tienes permiso para cambiar este estado' });
 }
 
+function validateOrderStatusTransition(user, order, nextStatus) {
+  if (user?.role === 'owner') return null;
+  if (user?.role === 'kitchen') {
+    if (order.status === 'pending' && nextStatus === 'preparing') return null;
+    if (order.status === 'preparing' && nextStatus === 'ready') return null;
+    return 'Cocina solo puede avanzar de Pendiente a Preparando y de Preparando a Listo';
+  }
+  if (user?.role === 'driver') {
+    if (order.fulfillment_type !== 'delivery') return 'Reparto solo gestiona pedidos a domicilio';
+    if (order.status === 'ready' && nextStatus === 'out_for_delivery') return null;
+    if (order.status === 'out_for_delivery' && nextStatus === 'delivered') return null;
+    return 'Reparto solo puede avanzar de Listo a En reparto y de En reparto a Entregado';
+  }
+  return 'No tienes permiso para cambiar este estado';
+}
+
 function phoneNumbersMatch(first, second) {
   const normalize = (value) => String(value || '').replace(/\D/g, '');
   const a = normalize(first);
@@ -1070,6 +1086,8 @@ app.patch('/api/orders/:id/status', requireOrderStatusRole, async (req, res) => 
     }
 
     const previous = current.rows[0];
+    const transitionError = validateOrderStatusTransition(req.user, previous, status);
+    if (transitionError) throw agentError('ORDER_INVALID_TRANSITION', transitionError, undefined, 403);
     let result;
     if (status === 'cancelled') {
       const cancelledBy = req.user?.id ? `dashboard:${req.user.id}` : 'dashboard:legacy';

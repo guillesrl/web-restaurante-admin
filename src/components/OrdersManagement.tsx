@@ -50,11 +50,16 @@ function OrdersManagementComponent({ role = 'owner' }: { role?: DashboardRole })
     { value: "delivered", label: "Entregado", color: "bg-gray-500" },
     { value: "cancelled", label: "Cancelado", color: "bg-red-500" }
   ];
-  const statusOptionsForRole = (currentStatus: Order['status']) => statusOptions.filter((option) => {
+  const statusOptionsForRole = (currentStatus: Order['status'], fulfillmentType: Order['fulfillment_type']) => statusOptions.filter((option) => {
     if (option.value === currentStatus) return true;
     if (role === 'owner') return true;
-    if (role === 'kitchen') return ['preparing', 'ready'].includes(option.value);
-    return ['out_for_delivery', 'delivered'].includes(option.value);
+    if (role === 'kitchen') {
+      return (currentStatus === 'pending' && option.value === 'preparing') ||
+        (currentStatus === 'preparing' && option.value === 'ready');
+    }
+    if (fulfillmentType !== 'delivery') return false;
+    return (currentStatus === 'ready' && option.value === 'out_for_delivery') ||
+      (currentStatus === 'out_for_delivery' && option.value === 'delivered');
   });
 
   const visibleOrders = filterOrdersByPeriod(orders, orderPeriod);
@@ -550,7 +555,7 @@ function OrdersManagementComponent({ role = 'owner' }: { role?: DashboardRole })
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {statusOptionsForRole(order.status)
+                        {statusOptionsForRole(order.status, order.fulfillment_type)
                           .filter(option => option.value !== 'cancelled' || order.status === 'pending' || order.status === 'cancelled')
                           .map(option => (
                           <SelectItem key={option.value} value={option.value}>
