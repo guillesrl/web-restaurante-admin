@@ -8,7 +8,6 @@ import { getToken, clearToken } from "@/lib/auth";
 import { useTheme } from "next-themes";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useMenu, useOrders, useReservations } from "@/hooks/use-queries";
-import { useRealtime } from "@/hooks/use-realtime";
 import { ChunkErrorBoundary } from "@/components/ChunkErrorBoundary";
 import { StockAlertsPanel } from "@/components/StockAlertsPanel";
 import { cargarDatosDashboard, calcularEstadisticas, DatosDashboard } from "@/lib/rutinas";
@@ -30,8 +29,6 @@ const Index = () => {
   const [activeTab, setActiveTab] = useState("reservations");
   const { theme, setTheme } = useTheme();
   const isMobile = useIsMobile();
-
-  useRealtime();
 
   const { data: menuItems = [] } = useMenu();
   const { data: orders = [], refetch: refetchOrders } = useOrders();

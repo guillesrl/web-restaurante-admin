@@ -26,6 +26,9 @@ export function useMenu() {
     queryKey: MENU_KEYS.all,
     queryFn: () => MenuService.getAll(),
     staleTime: 30_000,
+    // Incluye cambios hechos por el agente y los flujos externos sin depender
+    // de una conexión directa del navegador a la base de datos.
+    refetchInterval: 15_000,
   });
 }
 
@@ -66,6 +69,7 @@ export function useOrders() {
     queryKey: ORDERS_KEYS.all,
     queryFn: () => OrdersService.getAll(),
     staleTime: 30_000,
+    refetchInterval: 15_000,
   });
 }
 
@@ -101,6 +105,7 @@ export function useReservations() {
     queryKey: RESERVATIONS_KEYS.all,
     queryFn: () => ReservationsService.getAll(),
     staleTime: 30_000,
+    refetchInterval: 15_000,
   });
 }
 

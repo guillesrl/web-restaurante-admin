@@ -55,7 +55,6 @@ export default defineConfig(async ({ mode }) => {
           'react-core': ['react', 'react-dom', 'react-router-dom'],
           'react-query': ['@tanstack/react-query'],
           'charts': ['recharts'],
-          'supabase': ['@supabase/supabase-js'],
           'ui-radix': [
             '@radix-ui/react-avatar',
             '@radix-ui/react-checkbox',

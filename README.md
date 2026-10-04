@@ -9,10 +9,10 @@ Panel de administración para restaurante con gestión de menú, pedidos y reser
 - **Pedidos de OpenLivery**: El agente consulta menú y stock, crea pedidos de forma atómica y puede cancelar pedidos pendientes con confirmación en dos pasos
 - **Aviso de pedido listo**: Al marcar un pedido como `ready`, se programa un aviso de WhatsApp tras un minuto; al cambiarlo de estado antes del envío, el aviso se cancela
 - **Horario de Andorra**: Fechas y horas operativas se muestran y almacenan para el negocio en `Europe/Andorra`
-- **Gestión de Reservas**: Sistema de reservas con filtro por fecha y actualización en tiempo real
-- **Base de Datos**: PostgreSQL vía conexión directa (`DATABASE_URL`, driver `pg`). El backend NO usa el cliente de Supabase para datos.
+- **Gestión de Reservas**: Sistema de reservas con filtro por fecha y actualización automática
+- **Base de Datos**: Neon PostgreSQL vía conexión directa (`DATABASE_URL`, driver `pg`)
 - **Interfaz Moderna**: React + TypeScript + Tailwind CSS + shadcn/ui
-- **Tiempo Real**: Supabase Realtime (solo en el frontend) para notificaciones instantáneas de nuevos pedidos y reservas
+- **Actualización automática**: React Query consulta la API cada 15 segundos, incluyendo pedidos creados por el agente y flujos externos
 - **Notificaciones Telegram**: Avisos a Telegram en nuevos pedidos, reservas y stock bajo (opcional, vía `TELEGRAM_BOT_TOKEN`)
 - **Autenticación**: Login opcional con contraseña + token propio (JWT firmado); protege todas las rutas `/api` si `DASHBOARD_PASSWORD` está definida
 - **Analíticas**: KPIs (ticket promedio, plato estrella, hora pico, tasa de cancelación) + 4 gráficos interactivos
@@ -30,7 +30,6 @@ Panel de administración para restaurante con gestión de menú, pedidos y reser
 - **shadcn/ui** - Componentes UI
 - **Lucide React** - Iconos
 - **React Query** - Gestión de estado del servidor con cache automático e invalidación inteligente
-- **Supabase Realtime** - Único uso de Supabase: suscripciones en tiempo real a cambios en `orders`, `reservations` y `menu` (client-side)
 - **jsPDF + jspdf-autotable** - Exportación de reportes a PDF
 - **xlsx** - Exportación de reportes a Excel
 - **Vitest + Testing Library** - Tests unitarios y de componentes
@@ -54,7 +53,6 @@ Panel de administración para restaurante con gestión de menú, pedidos y reser
 
 - Node.js 20+
 - Una base de datos PostgreSQL accesible (cadena `DATABASE_URL`)
-- Cuenta en Supabase solo si quieres Realtime en el frontend
 - npm o yarn
 
 ## 🚀 Instalación y Configuración
@@ -76,9 +74,6 @@ Crear archivo `.env` (ver `.env.example`):
 # Base de datos (obligatorio) — Postgres directo
 DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
 
-# Supabase (solo Realtime en el frontend)
-VITE_SUPABASE_URL=https://tu-proyecto.supabase.co
-VITE_SUPABASE_ANON_KEY=***REMOVED***...
 VITE_API_URL=/api
 
 # Servidor
@@ -195,7 +190,7 @@ Este proyecto está configurado para correr en **un solo servicio** (recomendado
 
 - **Servidor Unificado**: Express maneja tanto la API (`/api/*`) como el frontend estático
 - **Sin proxy necesario**: Todo corre en el mismo puerto
-- **Base de Datos**: Supabase en la nube
+- **Base de Datos**: Neon PostgreSQL mediante `DATABASE_URL`
 
 ### Build Command
 ```bash
@@ -214,9 +209,6 @@ npm start
 # Base de datos (obligatorio)
 DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
 
-# Supabase (solo Realtime frontend)
-VITE_SUPABASE_URL=https://tu-proyecto.supabase.co
-VITE_SUPABASE_ANON_KEY=***REMOVED***...
 PORT=80
 NODE_ENV=production
 
@@ -326,8 +318,8 @@ estado.
 
 ## 🔧 Configuración Avanzada
 
-### React Query + Supabase Realtime
-El dashboard usa React Query para cache automático con `staleTime: 30s` e invalidación inteligente tras mutations. Supabase Realtime suscribe a cambios en las tablas `orders` y `reservations`, actualizando el cache y mostrando notificaciones toast en tiempo real.
+### React Query + API propia
+El dashboard usa React Query para cache automático con `staleTime: 30s`, invalidación tras mutaciones y una consulta periódica cada 15 segundos a la API propia. Así se reflejan los cambios creados por el dashboard, el agente y los flujos externos sin exponer una conexión de base de datos al navegador.
 
 ### Exportación de Reportes
 Cada sección (pedidos, reservas, menú) incluye botones para exportar a PDF y Excel con datos filtrados y nombres de archivo con fecha.
@@ -336,8 +328,6 @@ Cada sección (pedidos, reservas, menú) incluye botones para exportar a PDF y E
 - `DATABASE_URL`: Cadena de conexión a PostgreSQL (obligatoria)
 - `PORT`: Puerto del servidor (default: 80 en producción, 8080 en desarrollo)
 - `NODE_ENV`: Entorno (development/production)
-- `VITE_SUPABASE_URL`: URL del proyecto Supabase (solo Realtime frontend)
-- `VITE_SUPABASE_ANON_KEY`: Clave anónima de Supabase (solo Realtime frontend)
 - `VITE_API_URL`: URL base de la API (default: `/api`)
 - `DASHBOARD_PASSWORD`: Contraseña de acceso; si está vacía, la auth queda deshabilitada
 - `JWT_SECRET`: Secreto para firmar el token (default: usa `DASHBOARD_PASSWORD`)
@@ -349,7 +339,7 @@ Cada sección (pedidos, reservas, menú) incluye botones para exportar a PDF y E
 ### Error de conexión a la base de datos
 - Verifica que `DATABASE_URL` sea correcta y la base sea accesible (usa `GET /api/db-health`)
 - Confirma que las tablas `menu`, `orders` y `reservations` existan
-- Para el Realtime del frontend, revisa `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY`
+- Comprueba `GET /api/db-health` y que `DATABASE_URL` esté configurada en EasyPanel
 
 ### Error "Node.js 18 and below are deprecated"
 - Usa Node.js 20 o superior
@@ -373,7 +363,7 @@ Cada sección (pedidos, reservas, menú) incluye botones para exportar a PDF y E
 
 ### Logs duplicados
 - React Query deduplica automáticamente las peticiones concurrentes
-- Supabase Realtime invalida el cache cuando hay cambios en la base de datos
+- React Query vuelve a consultar la API cada 15 segundos mientras el dashboard está abierto
 
 ## 📝 Notas de Desarrollo
 
@@ -384,7 +374,7 @@ Cada sección (pedidos, reservas, menú) incluye botones para exportar a PDF y E
 - El filtro de reservas maneja correctamente zonas horarias
 - El servidor Express sirve tanto API como frontend (SPA routing)
 - React Query gestiona el estado del servidor con hooks personalizados en `src/hooks/use-queries.ts`
-- Supabase Realtime suscribe a cambios en `orders` y `reservations` via `src/hooks/use-realtime.ts`
+- Los cambios de menú, pedidos y reservas se consultan mediante la API propia y `src/hooks/use-queries.ts`
 - La exportación a PDF/Excel usa jspdf y xlsx desde `src/lib/export.ts`
 - ChunkErrorBoundary maneja fallos de carga de red con mensaje amigable
 - To update dependencies, use `npm update` and check for breaking changes
