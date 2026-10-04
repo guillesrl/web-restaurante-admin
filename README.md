@@ -304,8 +304,10 @@ verifica en GitHub que el webhook anterior ya no siga activo.
 
 Todas las rutas `/api/*` (salvo las públicas de auth y health) requieren una
 sesión activa si hay cuentas configuradas. Los permisos se validan en servidor:
-propietario gestiona todo, cocina avanza a `Preparando` o `Listo`, y reparto a
-`En reparto` o `Entregado`.
+propietario gestiona todo; cocina consulta el menú, las descripciones, el stock
+y sus avisos, además de avanzar pedidos a `Preparando` o `Listo`; reparto pasa
+pedidos a `En reparto` o `Entregado`. Solo el propietario puede modificar el
+menú o el stock.
 
 ### Auth y health
 - `GET /api/health` - Estado del servidor

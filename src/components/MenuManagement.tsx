@@ -13,10 +13,10 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
-import { Plus, Edit, Trash2, ChefHat, Pencil, X, FileDown, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Pencil, X, FileDown, AlertTriangle } from "lucide-react";
 import { STOCK_LOW_THRESHOLD } from "@/hooks/use-stock-alerts";
 
-function MenuManagementComponent() {
+function MenuManagementComponent({ readOnly = false }: { readOnly?: boolean }) {
   const { data: menuItems = [], isLoading } = useMenu();
   const createMenu = useCreateMenu();
   const updateMenu = useUpdateMenu();
@@ -187,7 +187,9 @@ function MenuManagementComponent() {
         <div className="flex justify-between items-center">
           <div>
             <CardTitle className="text-base md:text-lg">Menú</CardTitle>
-            <CardDescription className="text-xs md:text-sm">Administra los platos</CardDescription>
+            <CardDescription className="text-xs md:text-sm">
+              {readOnly ? 'Consulta de platos, descripciones y existencias' : 'Administra los platos'}
+            </CardDescription>
           </div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => exportMenuToPDF(menuItems, 'Reporte del Menú')}>
@@ -199,7 +201,7 @@ function MenuManagementComponent() {
               CSV
             </Button>
           </div>
-          <Dialog open={dialogOpen} onOpenChange={(open) => {
+          {!readOnly && <Dialog open={dialogOpen} onOpenChange={(open) => {
             setDialogOpen(open);
             if (!open) resetForm();
           }}>
@@ -286,7 +288,7 @@ function MenuManagementComponent() {
                 </div>
               </form>
             </DialogContent>
-          </Dialog>
+          </Dialog>}
         </div>
       </CardHeader>
       <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
@@ -298,13 +300,13 @@ function MenuManagementComponent() {
               <TableHead className="w-20 px-2 whitespace-nowrap">Precio</TableHead>
               <TableHead className="w-16 px-2 whitespace-nowrap">Stock</TableHead>
               <TableHead>Descripción</TableHead>
-              <TableHead className="text-right">Acciones</TableHead>
+              {!readOnly && <TableHead className="text-right">Acciones</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
             {menuItems.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center text-muted-foreground">
+              <TableCell colSpan={readOnly ? 5 : 6} className="text-center text-muted-foreground">
                   No hay platos en el menú
                 </TableCell>
               </TableRow>
@@ -326,15 +328,24 @@ function MenuManagementComponent() {
                     </TableCell>
                     <TableCell className="w-20 px-2 whitespace-nowrap">${item.price}</TableCell>
                     <TableCell className="w-16 px-2">
-                      <Input
-                        type="number"
-                        value={item.stock ?? ""}
-                        onChange={(e) => handleStockUpdate(item.id!, e.target.value)}
-                        className="w-14 h-8 px-1 text-center"
-                      />
+                      {readOnly ? (
+                        <div className="flex items-center gap-1 font-medium" aria-label={`Stock: ${item.stock ?? 0}`}>
+                          <span>{item.stock ?? 0}</span>
+                          {item.stock < STOCK_LOW_THRESHOLD && (
+                            <AlertTriangle className={`h-4 w-4 ${item.stock < 1 ? 'text-red-500' : 'text-amber-500'}`} />
+                          )}
+                        </div>
+                      ) : (
+                        <Input
+                          type="number"
+                          value={item.stock ?? ""}
+                          onChange={(e) => handleStockUpdate(item.id!, e.target.value)}
+                          className="w-14 h-8 px-1 text-center"
+                        />
+                      )}
                     </TableCell>
-                    <TableCell className="max-w-[300px] truncate">{item.description}</TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className={readOnly ? 'max-w-[300px] whitespace-normal' : 'max-w-[300px] truncate'}>{item.description}</TableCell>
+                    {!readOnly && <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
                         <Button
                           variant="ghost"
@@ -351,7 +362,7 @@ function MenuManagementComponent() {
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
-                    </TableCell>
+                    </TableCell>}
                   </TableRow>
                 );
               })

@@ -30,6 +30,47 @@ const TabLoader = () => (
   </div>
 );
 
+function KitchenWorkspace({
+  isMobile,
+  activeTab,
+  onTabChange,
+}: {
+  isMobile: boolean;
+  activeTab: string;
+  onTabChange: (tab: string) => void;
+}) {
+  return (
+    <Tabs value={activeTab} onValueChange={onTabChange} className="space-y-4 h-full">
+      {!isMobile && (
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="menu" className="flex items-center gap-2"><ChefHat className="h-4 w-4" />Menú</TabsTrigger>
+          <TabsTrigger value="orders" className="flex items-center gap-2"><ShoppingCart className="h-4 w-4" />Pedidos</TabsTrigger>
+        </TabsList>
+      )}
+
+      <div className={isMobile ? 'flex-1 flex flex-col pb-16' : ''}>
+        <div className={isMobile ? 'flex-1 overflow-auto' : ''}>
+          <TabsContent value="menu" className={isMobile ? 'mt-0 h-full' : 'space-y-4'}>
+            <ChunkErrorBoundary><Suspense fallback={<TabLoader />}><MenuManagement readOnly /></Suspense></ChunkErrorBoundary>
+          </TabsContent>
+          <TabsContent value="orders" className={isMobile ? 'mt-0 h-full' : 'space-y-4'}>
+            <ChunkErrorBoundary><Suspense fallback={<TabLoader />}><OrdersManagement role="kitchen" /></Suspense></ChunkErrorBoundary>
+          </TabsContent>
+        </div>
+
+        {isMobile && (
+          <div className="fixed bottom-0 left-0 right-0 bg-card border-t border-border z-50">
+            <TabsList className="grid w-full grid-cols-2 h-16 rounded-none border-0 bg-transparent">
+              <TabsTrigger value="menu" className="flex flex-col items-center gap-1 h-full data-[state=active]:bg-primary/10 data-[state=active]:text-primary"><ChefHat className="h-5 w-5" /><span className="text-xs">Menú</span></TabsTrigger>
+              <TabsTrigger value="orders" className="flex flex-col items-center gap-1 h-full data-[state=active]:bg-primary/10 data-[state=active]:text-primary"><ShoppingCart className="h-5 w-5" /><span className="text-xs">Pedidos</span></TabsTrigger>
+            </TabsList>
+          </div>
+        )}
+      </div>
+    </Tabs>
+  );
+}
+
 const Index = () => {
   const [activeTab, setActiveTab] = useState("reservations");
   const [usersDialogOpen, setUsersDialogOpen] = useState(false);
@@ -39,8 +80,10 @@ const Index = () => {
   const isMobile = useIsMobile();
   const { user, logout } = useDashboardAuth();
   const isOwner = !user || user.role === 'owner';
+  const isKitchen = user?.role === 'kitchen';
+  const canViewMenu = isOwner || isKitchen;
 
-  const { data: menuItems = [] } = useMenu(isOwner);
+  const { data: menuItems = [] } = useMenu(canViewMenu);
   const { data: orders = [], refetch: refetchOrders } = useOrders();
   const { data: allReservations = [], isLoading: isLoadingReservations } = useReservations(isOwner);
 
@@ -55,6 +98,10 @@ const Index = () => {
   useEffect(() => {
     if (isOwner) cargarDatosDashboard().then(setDatosFiltrados);
   }, [orders, allReservations, isOwner]);
+
+  useEffect(() => {
+    if (isKitchen && !['menu', 'orders'].includes(activeTab)) setActiveTab('menu');
+  }, [activeTab, isKitchen]);
 
   const stats = useMemo(
     () => calcularEstadisticas(menuItems, datosFiltrados),
@@ -118,9 +165,9 @@ const Index = () => {
 
       {/* Main Content */}
       <div className="flex-1 overflow-auto">
-        {isOwner && <>
-          <div className="pt-3 md:pt-6"><StockAlertsPanel /></div>
+        {canViewMenu && <div className="pt-3 md:pt-6"><StockAlertsPanel /></div>}
 
+        {isOwner && <>
         {/* Stats Overview - 2x2 en móvil, 4 columnas en desktop */}
         <div className="py-3 md:py-6">
           <div className="grid grid-cols-2 gap-2 px-4 md:grid-cols-4 md:gap-4 md:container md:mx-auto">
@@ -183,7 +230,7 @@ const Index = () => {
         {/* Tabs Content */}
         <div className={`${isMobile ? 'flex-1' : 'container mx-auto px-4'} ${isMobile ? '' : 'pb-8'}`}>
           {!isOwner ? (
-            <OrdersManagement role={user?.role} />
+            isKitchen ? <KitchenWorkspace isMobile={isMobile} activeTab={activeTab} onTabChange={setActiveTab} /> : <OrdersManagement role={user?.role} />
           ) : (
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4 h-full">
             {/* Desktop: Tabs normal arriba */}

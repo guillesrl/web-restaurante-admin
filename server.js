@@ -953,7 +953,9 @@ app.get('/api/db-health', requireRole('owner'), async (req, res) => {
 // MENU
 // ============================================
 
-app.get('/api/menu', requireRole('owner'), async (req, res) => {
+// Cocina necesita consultar el menú y el stock para preparar los pedidos, pero
+// las operaciones que lo modifican siguen siendo exclusivas del propietario.
+app.get('/api/menu', requireRole('owner', 'kitchen'), async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM menu ORDER BY id ASC');
     res.json({ success: true, data: rows.map(mapMenuItem) });
