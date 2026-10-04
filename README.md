@@ -6,6 +6,9 @@ Panel de administración para restaurante con gestión de menú, pedidos y reser
 
 - **Gestión de Menú**: CRUD completo para items del menú con categorías y stock
 - **Gestión de Pedidos**: Sistema de pedidos con estados y seguimiento
+- **Pedidos de OpenLivery**: El agente consulta menú y stock, crea pedidos de forma atómica y puede cancelar pedidos pendientes con confirmación en dos pasos
+- **Aviso de pedido listo**: Al marcar un pedido como `ready`, se programa un aviso de WhatsApp tras un minuto; al cambiarlo de estado antes del envío, el aviso se cancela
+- **Horario de Andorra**: Fechas y horas operativas se muestran y almacenan para el negocio en `Europe/Andorra`
 - **Gestión de Reservas**: Sistema de reservas con filtro por fecha y actualización en tiempo real
 - **Base de Datos**: PostgreSQL vía conexión directa (`DATABASE_URL`, driver `pg`). El backend NO usa el cliente de Supabase para datos.
 - **Interfaz Moderna**: React + TypeScript + Tailwind CSS + shadcn/ui
@@ -89,6 +92,9 @@ JWT_SECRET=
 # Notificaciones Telegram (opcional)
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
+
+# API privada para el agente de pedidos (obligatoria si se conecta OpenLivery)
+AGENT_ORDER_API_KEY=
 ```
 
 **Nota**: Para EasyPanel, usa las mismas variables en la configuración del servicio.
@@ -127,10 +133,21 @@ CREATE TABLE orders (
     total DECIMAL(10,2) NOT NULL,
     status VARCHAR(50) DEFAULT 'pending',
     time VARCHAR(10),
+    source VARCHAR(50),
+    fulfillment_type VARCHAR(20),
+    scheduled_for TIMESTAMPTZ,
+    observations TEXT,
+    delivery_notification_due_at TIMESTAMPTZ,
+    delivery_notification_claimed_at TIMESTAMPTZ,
+    delivery_notification_sent_at TIMESTAMPTZ,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
 ```
+
+El servidor añade automáticamente las columnas operativas que falten al iniciar.
+Para cancelaciones de agentes también crea la tabla interna
+`agent_order_cancellation_confirmations`, cuyos tokens expiran a los diez minutos.
 
 #### Tabla `reservations`
 ```sql
@@ -208,10 +225,19 @@ DASHBOARD_PASSWORD=
 JWT_SECRET=
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
+AGENT_ORDER_API_KEY=
 
 # Opcional: forzar versión de Node.js
 NODE_VERSION=20
 ```
+
+### Auto-despliegue desde GitHub
+
+El servicio de EasyPanel debe estar configurado con el repositorio y la rama `main`
+y con **Auto Deploy** activado. Un `push` a `main` inicia el build y despliegue
+automáticamente; no hace falta ni se recomienda usar una reconstrucción forzada
+para cambios normales. Verifica el resultado comparando el commit desplegado en
+EasyPanel con el commit enviado a GitHub.
 
 ### Notas sobre el build con Nixpacks (EasyPanel)
 
@@ -256,13 +282,38 @@ El backend ofrece dos rutas privadas para agentes, protegidas por la cabecera
 `x-agent-api-key` con el valor de `AGENT_ORDER_API_KEY`:
 
 - `GET /api/agent/menu` - Menú y stock operativo.
-- `POST /api/agent/orders` - Valida las líneas, bloquea el inventario con una
-  transacción, crea el pedido y descuenta el stock de forma atómica.
+- `POST /api/agent/orders` - Gestiona pedidos con una transacción y la clave de
+  agente. Para alta valida líneas, bloquea el inventario, crea el pedido y
+  descuenta el stock de forma atómica.
 
 El total se calcula en el servidor; el agente nunca envía precios ni puede
 modificar stock directamente. Para clientes de herramientas HTTP que no
 admiten arrays anidados, el `POST` también acepta un único campo `order_json`
 con el JSON completo del pedido.
+
+#### Cancelación en dos pasos
+
+La misma ruta evita cancelar un pedido por accidente:
+
+1. `{"action":"prepare_cancel","order_id":9,"customer_phone":"615808"}`
+   valida que el pedido esté pendiente y devuelve un resumen junto con un token
+   temporal. No modifica el pedido ni el stock.
+2. Solo después de una nueva confirmación explícita del cliente, se envía
+   `{"action":"confirm_cancel","cancellation_token":"<token>"}`. Entonces
+   cambia el pedido a `cancelled`, repone el stock y anula cualquier aviso de
+   pedido listo pendiente.
+
+La acción directa `{"action":"cancel"}` se rechaza. El teléfono puede ser un
+número local de Andorra de seis dígitos; el prefijo `+376` es opcional.
+
+### Aviso de pedido listo
+
+El archivo `n8n/pedido-entregado-notificacion.json` contiene el flujo de n8n
+que se ejecuta cada minuto. Selecciona únicamente pedidos con estado `ready`,
+teléfono disponible y aviso vencido; envía la plantilla de WhatsApp aprobada y
+marca el aviso como enviado. El dashboard programa ese aviso al marcar `Listo`
+con una espera de un minuto, para permitir corregir un cambio accidental de
+estado.
 
 ### Reservas
 - `GET /api/reservations?filter=today|month` - Obtener reservas con filtros server-side
