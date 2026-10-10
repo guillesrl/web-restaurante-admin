@@ -94,6 +94,10 @@ TELEGRAM_CHAT_ID=
 # API privada para el agente de pedidos (obligatoria si se conecta OpenLivery)
 AGENT_ORDER_API_KEY=
 
+# Aviso event-driven a n8n cuando un repartidor marca un pedido como entregado
+N8N_DELIVERY_WEBHOOK_URL=https://n8n.guillers.es/webhook/restaurant-order-delivered
+N8N_DELIVERY_WEBHOOK_TOKEN=
+
 # Copias de seguridad externas (opcionales, activan la copia diaria cifrada)
 AWS_ENDPOINT_URL_S3=
 AWS_ACCESS_KEY_ID=
@@ -266,6 +270,10 @@ DASHBOARD_AUTH_SECRET=
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
 AGENT_ORDER_API_KEY=
+
+# Aviso event-driven a n8n cuando un repartidor marca un pedido como entregado
+N8N_DELIVERY_WEBHOOK_URL=https://n8n.guillers.es/webhook/restaurant-order-delivered
+N8N_DELIVERY_WEBHOOK_TOKEN=
 
 # Opcional: forzar versión de Node.js
 NODE_VERSION=20

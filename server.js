@@ -41,6 +41,36 @@ const port = process.env.PORT || 80;
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const AGENT_ORDER_API_KEY = process.env.AGENT_ORDER_API_KEY || '';
+const N8N_DELIVERY_WEBHOOK_URL = process.env.N8N_DELIVERY_WEBHOOK_URL || '';
+const N8N_DELIVERY_WEBHOOK_TOKEN = process.env.N8N_DELIVERY_WEBHOOK_TOKEN || '';
+
+const notifyDeliveredOrder = async (orderId) => {
+  if (!N8N_DELIVERY_WEBHOOK_URL || !N8N_DELIVERY_WEBHOOK_TOKEN) {
+    console.warn('⚠️ Aviso de entrega omitido: faltan N8N_DELIVERY_WEBHOOK_URL o N8N_DELIVERY_WEBHOOK_TOKEN');
+    return;
+  }
+
+  try {
+    const response = await fetch(N8N_DELIVERY_WEBHOOK_URL, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${N8N_DELIVERY_WEBHOOK_TOKEN}`,
+      },
+      body: JSON.stringify({ status: 'delivered', order_id: Number(orderId) }),
+      signal: AbortSignal.timeout(5000),
+    });
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      throw new Error(`n8n respondió ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ''}`);
+    }
+
+    console.info(`✅ Aviso de entrega enviado a n8n para el pedido #${orderId}`);
+  } catch (err) {
+    console.error(`❌ No se pudo avisar a n8n del pedido #${orderId}:`, err.message);
+  }
+};
 
 if (!DATABASE_URL) {
   console.error('❌ Error: DATABASE_URL debe estar definida en las variables de entorno');
@@ -1230,6 +1260,9 @@ app.patch('/api/orders/:id/status', requireOrderStatusRole, async (req, res) => 
     await client.query('COMMIT');
     const { rows } = result;
     if (!rows[0]) return res.status(404).json({ success: false, error: 'Order not found' });
+    if (status === 'delivered' && previous.status !== 'delivered') {
+      void notifyDeliveredOrder(rows[0].id);
+    }
     res.json({ success: true, data: mapOrder(rows[0]) });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
