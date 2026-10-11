@@ -55,7 +55,9 @@ const notifyDeliveredOrder = async (orderId) => {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        authorization: `Bearer ${N8N_DELIVERY_WEBHOOK_TOKEN}`,
+        // Use a custom header: reverse proxies may consume Authorization before
+        // the request reaches n8n's Header Auth webhook.
+        'x-openlivery-secret': N8N_DELIVERY_WEBHOOK_TOKEN,
       },
       body: JSON.stringify({ status: 'delivered', order_id: Number(orderId) }),
       signal: AbortSignal.timeout(5000),
