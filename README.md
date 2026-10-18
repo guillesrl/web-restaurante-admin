@@ -390,8 +390,20 @@ cambio accidental de estado.
 
 Para pedidos a domicilio, `Listo` significa que cocina ha terminado: no envía
 ningún mensaje al cliente. El operador cambia después a `En reparto` cuando el
-repartidor sale y a `Entregado` al finalizar. El aviso de “va en camino” se
-puede activar cuando exista una plantilla Meta específica aprobada.
+repartidor sale y a `Entregado` al finalizar.
+
+### Aviso de pedido en camino
+
+Al cambiar un pedido a domicilio a `En reparto`, el dashboard programa un aviso
+con un minuto de espera. El workflow activo de n8n
+`Restaurante — Aviso de pedido en camino` (`M3dEnCamino2026`), definido en
+`n8n/pedido-en-camino-notificacion.json`, comprueba cada minuto que el pedido
+siga en ese estado, sea de reparto y no tenga ya el aviso enviado. Envía la
+plantilla aprobada `pedido_en_camino|es` con nombre, número, dirección y total;
+solo después de que Meta acepte el envío marca
+`out_for_delivery_notification_sent_at`. Si el pedido sale de `En reparto`
+antes del aviso, se anula el envío pendiente. Esta marca es independiente de
+las de los avisos de recogida y entrega.
 
 ### Reservas
 - `GET /api/reservations?filter=today|month` - Obtener reservas con filtros server-side
