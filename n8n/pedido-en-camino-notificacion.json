@@ -1,0 +1,127 @@
+[
+  {
+    "id": "M3dEnCamino2026",
+    "name": "Restaurante — Aviso de pedido en camino",
+    "active": false,
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              { "field": "cronExpression", "expression": "* * * * *" }
+            ]
+          }
+        },
+        "id": "e8e11752-6fbf-4278-8707-f259d391e4ed",
+        "name": "Cada minuto",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [0, 0]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH claimable AS (\n  SELECT id\n  FROM orders\n  WHERE status = 'out_for_delivery'\n    AND fulfillment_type = 'delivery'\n    AND COALESCE(telefono, '') <> ''\n    AND out_for_delivery_notification_due_at <= NOW()\n    AND out_for_delivery_notification_sent_at IS NULL\n    AND (out_for_delivery_notification_claimed_at IS NULL OR out_for_delivery_notification_claimed_at < NOW() - INTERVAL '10 minutes')\n  ORDER BY out_for_delivery_notification_due_at ASC\n  LIMIT 20\n  FOR UPDATE SKIP LOCKED\n)\nUPDATE orders AS o\nSET out_for_delivery_notification_claimed_at = NOW()\nFROM claimable\nWHERE o.id = claimable.id\nRETURNING o.id, o.nombre, o.telefono, o.direccion, o.total",
+          "options": {}
+        },
+        "id": "c71df470-25a5-408e-ac08-79ea5620146d",
+        "name": "Reservar avisos en camino",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [240, 0],
+        "credentials": {
+          "postgres": { "id": "GLFhlsFDl9vGbYAt", "name": "Neon_Resto" }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "261bc71f-ec29-4a98-bf06-d8596a18d3a3",
+                "leftValue": "={{ String($json.id || '') }}",
+                "rightValue": "",
+                "operator": { "type": "string", "operation": "notEmpty", "singleValue": true }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "f5c67bd3-5fcb-4c19-a091-57cd8be04e97",
+        "name": "Hay pedido para avisar",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [480, 0]
+      },
+      {
+        "parameters": {
+          "phoneNumberId": "1345205168674012",
+          "recipientPhoneNumber": "={{ String($json.telefono || '').replace(/\\D/g, '') }}",
+          "template": "pedido_en_camino|es",
+          "components": {
+            "component": [
+              {
+                "type": "body",
+                "bodyParameters": {
+                  "parameter": [
+                    { "text": "={{ $json.nombre || 'Cliente' }}", "type": "text" },
+                    { "text": "={{ String($json.id) }}", "type": "text" },
+                    { "text": "={{ $json.direccion || 'la dirección indicada' }}", "type": "text" },
+                    { "text": "={{ Number($json.total || 0).toFixed(2).replace('.', ',') }}", "type": "text" }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "id": "122dc49a-50af-4338-a0d7-110a7e999180",
+        "name": "Enviar plantilla pedido_en_camino",
+        "type": "n8n-nodes-base.whatsApp",
+        "typeVersion": 1,
+        "position": [720, 0],
+        "credentials": {
+          "whatsAppApi": { "id": "6yvvLq3vjXSei8jQ", "name": "WhatsApp account" }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "UPDATE orders\nSET out_for_delivery_notification_sent_at = NOW(),\n    out_for_delivery_notification_claimed_at = NULL\nWHERE id = $1\n  AND status = 'out_for_delivery'\n  AND fulfillment_type = 'delivery'\n  AND out_for_delivery_notification_sent_at IS NULL\nRETURNING id, out_for_delivery_notification_sent_at",
+          "options": {
+            "queryReplacement": "={{ [$('Reservar avisos en camino').item.json.id] }}"
+          }
+        },
+        "id": "b128a25d-15c1-4ef7-9586-3c96bda778bb",
+        "name": "Registrar aviso en camino",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [980, 0],
+        "credentials": {
+          "postgres": { "id": "GLFhlsFDl9vGbYAt", "name": "Neon_Resto" }
+        }
+      }
+    ],
+    "connections": {
+      "Cada minuto": {
+        "main": [[{ "node": "Reservar avisos en camino", "type": "main", "index": 0 }]]
+      },
+      "Reservar avisos en camino": {
+        "main": [[{ "node": "Hay pedido para avisar", "type": "main", "index": 0 }]]
+      },
+      "Hay pedido para avisar": {
+        "main": [[{ "node": "Enviar plantilla pedido_en_camino", "type": "main", "index": 0 }], []]
+      },
+      "Enviar plantilla pedido_en_camino": {
+        "main": [[{ "node": "Registrar aviso en camino", "type": "main", "index": 0 }]]
+      }
+    },
+    "settings": { "executionOrder": "v1" }
+  }
+]

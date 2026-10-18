@@ -7,7 +7,7 @@ Panel de administración para restaurante con gestión de menú, pedidos y reser
 - **Gestión de Menú**: CRUD completo para items del menú con categorías y stock
 - **Gestión de Pedidos**: Sistema de pedidos con estados y seguimiento
 - **Pedidos de OpenLivery**: El agente consulta menú y stock, crea pedidos de forma atómica y puede cancelar pedidos pendientes con confirmación en dos pasos
-- **Flujo de recogida y reparto**: `Listo` avisa por WhatsApp solo a pedidos de recogida; los pedidos a domicilio pasan después por `En reparto` y finalmente `Entregado`
+- **Flujo de recogida y reparto**: `Listo` avisa por WhatsApp solo a pedidos de recogida; los pedidos a domicilio reciben avisos separados al pasar a `En reparto` y después a `Entregado`
 - **Horario de Andorra**: Fechas y horas operativas se muestran y almacenan para el negocio en `Europe/Andorra`
 - **Gestión de Reservas**: Sistema de reservas con filtro por fecha y actualización automática
 - **Base de Datos**: Neon PostgreSQL vía conexión directa (`DATABASE_URL`, driver `pg`)
@@ -156,6 +156,9 @@ CREATE TABLE orders (
     delivery_notification_due_at TIMESTAMPTZ,
     delivery_notification_claimed_at TIMESTAMPTZ,
     delivery_notification_sent_at TIMESTAMPTZ,
+    out_for_delivery_notification_due_at TIMESTAMPTZ,
+    out_for_delivery_notification_claimed_at TIMESTAMPTZ,
+    out_for_delivery_notification_sent_at TIMESTAMPTZ,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );

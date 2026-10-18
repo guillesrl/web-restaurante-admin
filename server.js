@@ -1258,6 +1258,28 @@ app.patch('/api/orders/:id/status', requireOrderStatusRole, async (req, res) => 
       );
     }
 
+    if (status !== previous.status && status === 'out_for_delivery' &&
+        previous.fulfillment_type === 'delivery' && !previous.out_for_delivery_notification_sent_at) {
+      result = await client.query(
+        `UPDATE orders
+         SET out_for_delivery_notification_due_at=NOW() + INTERVAL '1 minute',
+             out_for_delivery_notification_claimed_at=NULL
+         WHERE id=$1
+         RETURNING *`,
+        [id]
+      );
+    } else if (status !== previous.status && previous.status === 'out_for_delivery' &&
+               !previous.out_for_delivery_notification_sent_at) {
+      result = await client.query(
+        `UPDATE orders
+         SET out_for_delivery_notification_due_at=NULL,
+             out_for_delivery_notification_claimed_at=NULL
+         WHERE id=$1
+         RETURNING *`,
+        [id]
+      );
+    }
+
     await recordAuditEvent(client, req, 'order.status_changed', 'order', id, { from: previous.status, to: status });
     await client.query('COMMIT');
     const { rows } = result;
@@ -1376,7 +1398,10 @@ async function ensureAgentOrderColumns() {
       ADD COLUMN IF NOT EXISTS cancelled_by VARCHAR(50),
       ADD COLUMN IF NOT EXISTS delivery_notification_due_at TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS delivery_notification_claimed_at TIMESTAMPTZ,
-      ADD COLUMN IF NOT EXISTS delivery_notification_sent_at TIMESTAMPTZ
+      ADD COLUMN IF NOT EXISTS delivery_notification_sent_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS out_for_delivery_notification_due_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS out_for_delivery_notification_claimed_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS out_for_delivery_notification_sent_at TIMESTAMPTZ
   `);
   // Los pedidos antiguos de OpenLivery ya guardaban "Recogida" o una dirección.
   // Lo ambiguo se considera domicilio para no enviar por error un aviso de recogida.
