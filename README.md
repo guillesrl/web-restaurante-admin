@@ -62,7 +62,7 @@ Panel de administración para restaurante con gestión de menú, pedidos y reser
 ### 1. Clonar el repositorio
 ```bash
 git clone <repository-url>
-cd dashboard-2026
+cd web-restaurante-admin
 ```
 
 ### 2. Instalar dependencias
@@ -73,8 +73,10 @@ npm install
 ### 3. Configurar variables de entorno
 Crear archivo `.env` (ver `.env.example`):
 ```env
-# Base de datos (obligatorio) — Postgres directo
-DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
+# Base de datos (obligatoria)
+DATABASE_URL=postgresql://user:password@host:5432/dbname
+# true para PostgreSQL con TLS; false para la red privada de Easypanel sin TLS
+DATABASE_SSL=true
 
 VITE_API_URL=/api
 
@@ -111,110 +113,34 @@ BACKUP_INTERVAL_HOURS=24
 
 **Nota**: Para EasyPanel, usa las mismas variables en la configuración del servicio.
 
-### 4. Base de Datos
-El backend se conecta a PostgreSQL vía `DATABASE_URL` (con `pg`). Asegúrate de que la base tenga las siguientes tablas:
+### 4. Base de datos
 
-#### Tabla `menu`
-```sql
-CREATE TABLE menu (
-    id SERIAL PRIMARY KEY,
-    nombre VARCHAR(255) NOT NULL,
-    ingredientes TEXT,
-    precio DECIMAL(10,2) NOT NULL,
-    categoria VARCHAR(100) NOT NULL,
-    stock INTEGER DEFAULT 0,
-    vegetariano VARCHAR(10) DEFAULT 'no',
-    gluten VARCHAR(10) DEFAULT 'no',
-    marisco VARCHAR(10) DEFAULT 'no',
-    lactosa VARCHAR(10) DEFAULT 'no',
-    vegano VARCHAR(10) DEFAULT 'no',
-    available BOOLEAN DEFAULT true,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
-);
-```
+El servidor usa PostgreSQL mediante `DATABASE_URL` y el driver `pg`. El esquema
+canónico está en [`migrations/001_easypanel_postgres.sql`](migrations/001_easypanel_postgres.sql).
+Para una instalación nueva, crea primero una base y un usuario dedicados, conecta
+la aplicación a esa base y ejecuta el archivo SQL allí. No lo ejecutes en una
+base compartida por otros servicios.
 
-#### Tabla `orders`
-```sql
-CREATE TABLE orders (
-    id SERIAL PRIMARY KEY,
-    nombre VARCHAR(255) NOT NULL,
-    telefono VARCHAR(50),
-    direccion VARCHAR(255) DEFAULT 'Dirección no especificada',
-    items JSONB NOT NULL,
-    total DECIMAL(10,2) NOT NULL,
-    status VARCHAR(50) DEFAULT 'pending',
-    time VARCHAR(10),
-    source VARCHAR(50),
-    fulfillment_type VARCHAR(20), -- pickup | delivery
-    scheduled_for TIMESTAMPTZ,
-    observations TEXT,
-    stock_reserved_at TIMESTAMPTZ,
-    stock_restored_at TIMESTAMPTZ,
-    cancelled_at TIMESTAMPTZ,
-    cancelled_by VARCHAR(50), -- agent | dashboard
-    delivery_notification_due_at TIMESTAMPTZ,
-    delivery_notification_claimed_at TIMESTAMPTZ,
-    delivery_notification_sent_at TIMESTAMPTZ,
-    out_for_delivery_notification_due_at TIMESTAMPTZ,
-    out_for_delivery_notification_claimed_at TIMESTAMPTZ,
-    out_for_delivery_notification_sent_at TIMESTAMPTZ,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
-);
-```
+En el despliegue actual de Easypanel, la aplicación usa la base dedicada
+`dashboard_restaurante` dentro del servicio PostgreSQL existente. La conexión se
+configura en las variables del servicio: `DATABASE_URL` apunta a esa base y
+`DATABASE_SSL=false` porque la comunicación ocurre por la red interna de
+Easypanel sin TLS. Para PostgreSQL externo, configura `DATABASE_SSL=true` cuando
+el servidor requiera TLS. Mantén las credenciales solo en el gestor de variables
+de entorno; no las añadas al repositorio.
 
-El servidor añade automáticamente las columnas operativas que falten al iniciar.
-Para cancelaciones de agentes también crea la tabla interna
-`agent_order_cancellation_confirmations`, cuyos tokens expiran a los diez minutos.
+La migración inicial conservó las 32 entradas del menú e importó las cinco
+reservas y los cinco pedidos más recientes de la base de origen. La base de
+origen no se modificó. En ese corte, los pedidos importados estaban en estado
+`pending` y las reservas en `confirmed`; revisa sus fechas antes de tratarlos
+como actividad vigente.
 
-#### Tabla `dashboard_users`
-```sql
-CREATE TABLE dashboard_users (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    email VARCHAR(255) NOT NULL,
-    role VARCHAR(20) NOT NULL, -- owner | kitchen | driver
-    password_hash TEXT NOT NULL,
-    is_active BOOLEAN NOT NULL DEFAULT true,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-```
-
-#### Tabla `audit_events`
-
-Registra usuario, rol y momento de las operaciones críticas realizadas desde el
-dashboard: pedidos, usuarios, menú y reservas. El propietario puede consultarlo
-desde el icono de historial en la cabecera.
-
-#### Tabla `backup_runs`
-
-Registra el resultado de cada copia lógica cifrada. El archivo se guarda en
-almacenamiento S3 externo y contiene los datos operativos del dashboard; no se suben secretos ni
-variables de entorno.
-
-Tras desplegar desde la versión anterior, entra una última vez con la
-contraseña compartida y crea desde el botón de usuarios una cuenta de
-`Propietario`. Desde ese momento la contraseña compartida queda desactivada.
-
-#### Tabla `reservations`
-```sql
-CREATE TABLE reservations (
-    id SERIAL PRIMARY KEY,
-    customer_name VARCHAR(255) NOT NULL,
-    phone VARCHAR(50) NOT NULL,
-    date DATE NOT NULL,
-    time TIME NOT NULL,
-    people INTEGER NOT NULL,
-    table_number INTEGER,
-    status VARCHAR(50) DEFAULT 'confirmed',
-    google_event_id VARCHAR(255),
-    observations TEXT,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
-);
-```
+El servidor añade al arrancar algunas columnas operativas que falten en `orders`
+y crea las tablas auxiliares de usuarios, auditoría, confirmación de
+cancelaciones y copias de seguridad. Tras desplegar desde una versión anterior,
+entra una última vez con la contraseña compartida y crea desde el botón de
+usuarios una cuenta de `Propietario`; desde entonces la contraseña compartida
+queda desactivada.
 
 ## 🏃‍♂️ Ejecutar la Aplicación
 
@@ -260,8 +186,9 @@ npm start
 ### Variables de entorno (EasyPanel)
 
 ```env
-# Base de datos (obligatorio)
+# Base de datos dedicada en la red interna de Easypanel
 DATABASE_URL=postgresql://dashboard_restaurante_app:password@n8n_postgres:5432/dashboard_restaurante
+# PostgreSQL interno de Easypanel no usa TLS
 DATABASE_SSL=false
 
 PORT=80
@@ -422,6 +349,7 @@ Cada sección (pedidos, reservas, menú) incluye botones para exportar a PDF y C
 
 ### Variables de Entorno Soportadas
 - `DATABASE_URL`: Cadena de conexión a PostgreSQL (obligatoria)
+- `DATABASE_SSL`: Usa TLS (`true`, por defecto); pon `false` solo para una conexión privada sin TLS
 - `PORT`: Puerto del servidor (default: 80 en producción, 8080 en desarrollo)
 - `NODE_ENV`: Entorno (development/production)
 - `VITE_API_URL`: URL base de la API (default: `/api`)
