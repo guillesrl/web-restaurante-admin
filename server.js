@@ -40,6 +40,7 @@ app.set('trust proxy', 1);
 const port = process.env.PORT || 80;
 
 const DATABASE_URL = process.env.DATABASE_URL;
+const DATABASE_SSL = process.env.DATABASE_SSL !== 'false';
 const AGENT_ORDER_API_KEY = process.env.AGENT_ORDER_API_KEY || '';
 const N8N_DELIVERY_WEBHOOK_URL = process.env.N8N_DELIVERY_WEBHOOK_URL || '';
 const N8N_DELIVERY_WEBHOOK_TOKEN = process.env.N8N_DELIVERY_WEBHOOK_TOKEN || '';
@@ -81,7 +82,7 @@ if (!DATABASE_URL) {
 
 const pool = new pg.Pool({
   connectionString: DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
+  ssl: DATABASE_SSL ? { rejectUnauthorized: false } : false,
   max: 10,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
@@ -1481,7 +1482,7 @@ async function startServer() {
     startBackupScheduler(pool);
     app.listen(port, () => {
       console.log(`✅ API server running on http://localhost:${port}`);
-      console.log('📊 Database: Neon PostgreSQL');
+      console.log('📊 Database: PostgreSQL');
     });
   } catch (err) {
     console.error('❌ Error preparando el esquema de pedidos del agente:', err.message);

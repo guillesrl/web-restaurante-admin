@@ -10,13 +10,13 @@ Panel de administración para restaurante con gestión de menú, pedidos y reser
 - **Flujo de recogida y reparto**: `Listo` avisa por WhatsApp solo a pedidos de recogida; los pedidos a domicilio reciben avisos separados al pasar a `En reparto` y después a `Entregado`
 - **Horario de Andorra**: Fechas y horas operativas se muestran y almacenan para el negocio en `Europe/Andorra`
 - **Gestión de Reservas**: Sistema de reservas con filtro por fecha y actualización automática
-- **Base de Datos**: Neon PostgreSQL vía conexión directa (`DATABASE_URL`, driver `pg`)
+- **Base de Datos**: PostgreSQL en Easypanel, en una base dedicada (`DATABASE_URL`, driver `pg`)
 - **Interfaz Moderna**: React + TypeScript + Tailwind CSS + shadcn/ui
 - **Actualización automática**: React Query consulta la API cada 15 segundos, incluyendo pedidos creados por el agente y flujos externos
 - **Notificaciones Telegram**: Avisos a Telegram en nuevos pedidos, reservas y stock bajo (opcional, vía `TELEGRAM_BOT_TOKEN`)
 - **Usuarios y permisos**: Cuentas individuales con sesiones `HttpOnly`, roles de propietario, cocina y reparto
 - **Trazabilidad operativa**: Historial de actividad para propietario sobre pedidos, usuarios, menú y reservas
-- **Copias y recuperación**: Exportación diaria cifrada a S3 compatible y restauración controlada en una rama aislada de Neon
+- **Copias y recuperación**: Exportación diaria cifrada a S3 compatible y restauración controlada en una base aislada
 - **Analíticas**: KPIs (ticket promedio, plato estrella, hora pico, tasa de cancelación) + 4 gráficos interactivos
 - **Exportación**: Reportes en PDF y CSV compatible con Excel para pedidos, reservas y menú
 - **Seguridad**: Helmet, rate-limiting, logging con Morgan y validación con Zod en el servidor
@@ -190,8 +190,8 @@ desde el icono de historial en la cabecera.
 
 #### Tabla `backup_runs`
 
-Registra el resultado de cada copia lógica cifrada. El archivo se guarda fuera
-de Neon y contiene los datos operativos del dashboard; no se suben secretos ni
+Registra el resultado de cada copia lógica cifrada. El archivo se guarda en
+almacenamiento S3 externo y contiene los datos operativos del dashboard; no se suben secretos ni
 variables de entorno.
 
 Tras desplegar desde la versión anterior, entra una última vez con la
@@ -244,7 +244,7 @@ Este proyecto está configurado para correr en **un solo servicio** (recomendado
 
 - **Servidor Unificado**: Express maneja tanto la API (`/api/*`) como el frontend estático
 - **Sin proxy necesario**: Todo corre en el mismo puerto
-- **Base de Datos**: Neon PostgreSQL mediante `DATABASE_URL`
+- **Base de Datos**: PostgreSQL en Easypanel mediante `DATABASE_URL`
 
 ### Build Command
 ```bash
@@ -261,7 +261,8 @@ npm start
 
 ```env
 # Base de datos (obligatorio)
-DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
+DATABASE_URL=postgresql://dashboard_restaurante_app:password@n8n_postgres:5432/dashboard_restaurante
+DATABASE_SSL=false
 
 PORT=80
 NODE_ENV=production
@@ -451,20 +452,20 @@ Cada sección (pedidos, reservas, menú) incluye botones para exportar a PDF y C
 
 ### Copias y recuperación
 
-Neon permite restaurar la rama de producción a un punto anterior dentro de su
-ventana de historial. Antes de restaurar, usa su asistente de viaje en el tiempo
-o crea una rama desde el instante elegido para revisar los datos.
+Si el proveedor de PostgreSQL ofrece historial o ramas, revísalos antes de
+restaurar. Para Easypanel, prepara una base aislada y valida allí la copia antes
+de tocar la base activa.
 
 Para una copia independiente, configura las seis variables S3 y de cifrado en
 EasyPanel. El dashboard iniciará una copia automática al arrancar si no existe
 otra dentro del intervalo configurado. El propietario puede comprobar el estado
 o crear una copia manual desde el icono de base de datos de la cabecera.
 
-La restauración de una copia externa se realiza **solo en una rama aislada de
-Neon**, nunca directamente en producción:
+La restauración de una copia externa se realiza **solo en una base aislada**, nunca
+directamente en producción:
 
 ```bash
-RESTORE_DATABASE_URL='postgresql://...rama-aislada...'
+RESTORE_DATABASE_URL='postgresql://...base-aislada...'
 RESTORE_CONFIRM=RESTORE_TO_ISOLATED_DATABASE \
 AWS_ENDPOINT_URL_S3=... AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... \
 AWS_REGION=... BACKUP_BUCKET=... BACKUP_ENCRYPTION_KEY=... \
