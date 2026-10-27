@@ -48,7 +48,7 @@ export function BackupsManagement() {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-lg font-semibold"><DatabaseBackup className="h-5 w-5" /> Copias de seguridad</h2>
-          <p className="text-sm text-muted-foreground">Exportaciones cifradas fuera de Neon y registro de las últimas ejecuciones.</p>
+          <p className="text-sm text-muted-foreground">Copias cifradas en almacenamiento externo y registro de las últimas ejecuciones.</p>
         </div>
         <Button variant="outline" size="sm" onClick={load} disabled={loading}><RefreshCw className="mr-1 h-4 w-4" />Actualizar</Button>
       </div>

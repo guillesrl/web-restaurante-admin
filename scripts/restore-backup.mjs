@@ -16,7 +16,7 @@ if (process.env.RESTORE_CONFIRM !== confirmation) {
   process.exit(1);
 }
 if (!process.env.RESTORE_DATABASE_URL || process.env.NODE_ENV === 'production') {
-  console.error('La restauración exige RESTORE_DATABASE_URL y no se permite con NODE_ENV=production. Usa una rama aislada de Neon.');
+  console.error('La restauración exige RESTORE_DATABASE_URL y no se permite con NODE_ENV=production. Usa una base PostgreSQL aislada.');
   process.exit(1);
 }
 
@@ -44,7 +44,11 @@ if (payload.format !== 'restaurant-dashboard-backup/v1') {
   throw new Error('El archivo no tiene un formato de copia compatible');
 }
 
-const client = new pg.Client({ connectionString: process.env.RESTORE_DATABASE_URL, ssl: { rejectUnauthorized: false } });
+const restoreDatabaseSSL = process.env.RESTORE_DATABASE_SSL !== 'false';
+const client = new pg.Client({
+  connectionString: process.env.RESTORE_DATABASE_URL,
+  ssl: restoreDatabaseSSL ? { rejectUnauthorized: false } : false,
+});
 await client.connect();
 try {
   await client.query('BEGIN');

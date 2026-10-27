@@ -8,7 +8,7 @@ Panel de administración para restaurante con gestión de menú, pedidos y reser
 - **Gestión de Pedidos**: Sistema de pedidos con estados y seguimiento
 - **Pedidos de OpenLivery**: El agente consulta menú y stock, crea pedidos de forma atómica y puede cancelar pedidos pendientes con confirmación en dos pasos
 - **Flujo de recogida y reparto**: `Listo` avisa por WhatsApp solo a pedidos de recogida; los pedidos a domicilio reciben avisos separados al pasar a `En reparto` y después a `Entregado`
-- **Horario de Andorra**: Fechas y horas operativas se muestran y almacenan para el negocio en `Europe/Andorra`
+- **Horario de Andorra**: Los pedidos programados se presentan en `Europe/Andorra`
 - **Gestión de Reservas**: Sistema de reservas con filtro por fecha y actualización automática
 - **Base de Datos**: PostgreSQL en Easypanel, en una base dedicada (`DATABASE_URL`, driver `pg`)
 - **Interfaz Moderna**: React + TypeScript + Tailwind CSS + shadcn/ui
@@ -17,10 +17,10 @@ Panel de administración para restaurante con gestión de menú, pedidos y reser
 - **Usuarios y permisos**: Cuentas individuales con sesiones `HttpOnly`, roles de propietario, cocina y reparto
 - **Trazabilidad operativa**: Historial de actividad para propietario sobre pedidos, usuarios, menú y reservas
 - **Copias y recuperación**: Exportación diaria cifrada a S3 compatible y restauración controlada en una base aislada
-- **Analíticas**: KPIs (ticket promedio, plato estrella, hora pico, tasa de cancelación) + 4 gráficos interactivos
+- **Analíticas**: KPIs (ticket promedio, plato estrella, hora pico, tasa de cancelación) y 3 gráficos interactivos
 - **Exportación**: Reportes en PDF y CSV compatible con Excel para pedidos, reservas y menú
 - **Seguridad**: Helmet, rate-limiting, logging con Morgan y validación con Zod en el servidor
-- **Server-side Rendering**: Express sirve tanto API como frontend estático
+- **Servidor unificado**: Express sirve la API y los archivos estáticos de la aplicación React
 
 ## 🛠️ Tecnologías
 
@@ -61,7 +61,7 @@ Panel de administración para restaurante con gestión de menú, pedidos y reser
 
 ### 1. Clonar el repositorio
 ```bash
-git clone <repository-url>
+git clone https://github.com/guillesrl/web-restaurante-admin.git
 cd web-restaurante-admin
 ```
 
@@ -74,9 +74,9 @@ npm install
 Crear archivo `.env` (ver `.env.example`):
 ```env
 # Base de datos (obligatoria)
-DATABASE_URL=postgresql://user:password@host:5432/dbname
-# true para PostgreSQL con TLS; false para la red privada de Easypanel sin TLS
-DATABASE_SSL=true
+DATABASE_URL=postgresql://user:password@localhost:5432/dashboard_restaurante
+# false para PostgreSQL local o interno sin TLS; true si el servidor exige TLS
+DATABASE_SSL=false
 
 VITE_API_URL=/api
 
@@ -149,6 +149,9 @@ queda desactivada.
 ```bash
 npm run dev:full
 ```
+
+Con `PORT=8080`, Express escucha en el puerto 8080 y Vite en el 3002; Vite
+redirige las llamadas a `/api` al backend.
 
 ### Opción 2: Desarrollo por separado
 ```bash
@@ -227,7 +230,7 @@ verifica en GitHub que el webhook anterior ya no siga activo.
 
 ### Notas sobre el build con Nixpacks (EasyPanel)
 
-- EasyPanel usa Nixpacks que genera un Dockerfile automáticamente con Node 20.18.1 y npm 10.8.2.
+- EasyPanel usa Nixpacks para generar el Dockerfile. El proyecto solicita Node 20 mediante `.nvmrc`.
 - El build usa `npm ci --include=dev` para disponer de Vite, React y el resto de herramientas de compilación; después `npm prune --omit=dev` elimina esas dependencias antes de arrancar Express.
 - Las dependencias del navegador y de build están en `devDependencies`; el runtime conserva solo Express, PostgreSQL, seguridad, validación y S3.
 - `rollup-plugin-visualizer` (solo para análisis local con `npm run analyze`) se importa de forma dinámica.
@@ -243,8 +246,10 @@ verifica en GitHub que el webhook anterior ya no siga activo.
 
 ## 📡 API Endpoints
 
-Todas las rutas `/api/*` (salvo las públicas de auth y health) requieren una
-sesión activa si hay cuentas configuradas. Los permisos se validan en servidor:
+Las rutas del dashboard requieren una sesión activa si hay cuentas configuradas.
+Las rutas `/api/agent/*` usan `AGENT_ORDER_API_KEY` en lugar de esa sesión, y
+las rutas públicas de acceso y salud no requieren autenticación. Los permisos
+del dashboard se validan en servidor:
 propietario gestiona todo; cocina consulta el menú, las descripciones, el stock
 y sus avisos, además de avanzar pedidos a `Preparando` o `Listo`; reparto pasa
 pedidos a `En reparto` o `Entregado`. Solo el propietario puede modificar el
@@ -257,7 +262,7 @@ menú o el stock.
 - `POST /api/login` - Inicia una sesión por cookie segura
 - `POST /api/logout` - Cierra la sesión actual
 - `GET /api/auth/me` - Devuelve el usuario de la sesión actual
-- `GET|POST|PATCH /api/users` - Gestión de usuarios, solo propietario
+- `GET|POST /api/users` y `PATCH /api/users/:id` - Gestión de usuarios, solo propietario
 - `GET /api/audit-events` - Historial de acciones, solo propietario
 - `GET /api/backups` - Estado y ejecuciones de copias, solo propietario
 - `POST /api/backups` - Crea una copia manual cifrada, solo propietario
@@ -291,14 +296,14 @@ con el JSON completo del pedido.
 
 #### Cancelación y reposición de stock
 
-Todo pedido creado por Leandro o desde el dashboard reserva stock en la misma
+Todo pedido creado por el agente o desde el dashboard reserva stock en la misma
 transacción. Una cancelación solo es válida mientras está `pending`; devuelve
 el stock reservado una única vez y deja constancia de su origen (`agent` o
 `dashboard`). El dashboard muestra antes un resumen y requiere confirmación.
 
-Para Leandro, la misma ruta evita cancelar un pedido por accidente:
+Para el agente, la misma ruta evita cancelar un pedido por accidente:
 
-1. `{"action":"prepare_cancel","order_id":9,"customer_phone":"615808"}`
+1. `{"action":"prepare_cancel","order_id":123,"customer_phone":"600123"}`
    valida que el pedido esté pendiente y devuelve un resumen junto con un token
    temporal. No modifica el pedido ni el stock.
 2. Solo después de una nueva confirmación explícita del cliente, se envía
@@ -314,7 +319,7 @@ número local de Andorra de seis dígitos; el prefijo `+376` es opcional.
 El archivo `n8n/pedido-entregado-notificacion.json` contiene el flujo de n8n
 que se ejecuta cada minuto. Selecciona únicamente pedidos de **recogida** con
 estado `ready`, teléfono disponible y aviso vencido; envía la plantilla de
-WhatsApp aprobada y marca el aviso como enviado. El dashboard programa ese
+WhatsApp configurada y marca el aviso como enviado. El dashboard programa ese
 aviso al marcar `Listo` con una espera de un minuto, para permitir corregir un
 cambio accidental de estado.
 
@@ -325,15 +330,25 @@ repartidor sale y a `Entregado` al finalizar.
 ### Aviso de pedido en camino
 
 Al cambiar un pedido a domicilio a `En reparto`, el dashboard programa un aviso
-con un minuto de espera. El workflow activo de n8n
+con un minuto de espera. El archivo exportado del workflow de n8n
 `Restaurante — Aviso de pedido en camino` (`M3dEnCamino2026`), definido en
 `n8n/pedido-en-camino-notificacion.json`, comprueba cada minuto que el pedido
 siga en ese estado, sea de reparto y no tenga ya el aviso enviado. Envía la
-plantilla aprobada `pedido_en_camino|es` con nombre, número, dirección y total;
+plantilla configurada `pedido_en_camino|es` con nombre, número, dirección y total;
 solo después de que Meta acepte el envío marca
 `out_for_delivery_notification_sent_at`. Si el pedido sale de `En reparto`
 antes del aviso, se anula el envío pendiente. Esta marca es independiente de
 las de los avisos de recogida y entrega.
+
+El archivo exportado figura como **inactivo**. Tras importarlo en n8n, hay que
+activarlo para que envíe avisos; el estado de la instancia en producción no se
+puede deducir del archivo del repositorio.
+
+Los dos archivos de `n8n/` conservan una referencia a la credencial heredada
+`Neon_Resto`. Al importarlos, vincula sus nodos PostgreSQL a la base dedicada
+`dashboard_restaurante` y revisa la configuración de WhatsApp antes de activar
+los flujos. La referencia del archivo no confirma a qué base se conecta una
+instancia de n8n ya desplegada.
 
 ### Reservas
 - `GET /api/reservations?filter=today|month` - Obtener reservas con filtros server-side
@@ -347,12 +362,12 @@ las de los avisos de recogida y entrega.
 El dashboard usa React Query para cache automático con `staleTime: 30s`, invalidación tras mutaciones y una consulta periódica cada 15 segundos a la API propia. Así se reflejan los cambios creados por el dashboard, el agente y los flujos externos sin exponer una conexión de base de datos al navegador.
 
 ### Exportación de Reportes
-Cada sección (pedidos, reservas, menú) incluye botones para exportar a PDF y CSV UTF-8 con datos filtrados y nombres de archivo con fecha. El CSV se abre directamente con Excel y evita incluir un motor de hojas de cálculo en el navegador.
+Cada sección (pedidos, reservas, menú) incluye botones para exportar a PDF y CSV UTF-8 con nombres de archivo con fecha. La exportación de pedidos respeta el filtro visible; menú y reservas exportan la lista cargada. El CSV se abre directamente con Excel y evita incluir un motor de hojas de cálculo en el navegador.
 
 ### Variables de Entorno Soportadas
 - `DATABASE_URL`: Cadena de conexión a PostgreSQL (obligatoria)
 - `DATABASE_SSL`: Usa TLS (`true`, por defecto); pon `false` solo para una conexión privada sin TLS
-- `PORT`: Puerto del servidor (default: 80 en producción, 8080 en desarrollo)
+- `PORT`: Puerto de Express (80 por defecto; el ejemplo de desarrollo usa 8080)
 - `NODE_ENV`: Entorno (development/production)
 - `VITE_API_URL`: URL base de la API (default: `/api`)
 - `DASHBOARD_PASSWORD`: Contraseña compartida temporal para migrar la primera cuenta
@@ -363,11 +378,13 @@ Cada sección (pedidos, reservas, menú) incluye botones para exportar a PDF y C
 - `BACKUP_INTERVAL_HOURS`: Frecuencia de la copia automática (24 por defecto)
 - `TELEGRAM_BOT_TOKEN`: Token del bot para notificaciones (opcional)
 - `TELEGRAM_CHAT_ID`: Chat destino de las notificaciones (opcional)
+- `AGENT_ORDER_API_KEY`: Clave de la API privada del agente (opcional)
+- `N8N_DELIVERY_WEBHOOK_URL`, `N8N_DELIVERY_WEBHOOK_TOKEN`: Webhook del aviso de entrega (opcional)
 
 ## 🐛 Troubleshooting
 
 ### Error de conexión a la base de datos
-- Verifica que `DATABASE_URL` sea correcta y la base sea accesible (usa `GET /api/db-health`)
+- Verifica que `DATABASE_URL` sea correcta y la base sea accesible (el propietario puede usar `GET /api/db-health`)
 - Confirma que las tablas `menu`, `orders` y `reservations` existan
 - Comprueba `GET /api/db-health` y que `DATABASE_URL` esté configurada en EasyPanel
 
@@ -391,18 +408,25 @@ EasyPanel. El dashboard iniciará una copia automática al arrancar si no existe
 otra dentro del intervalo configurado. El propietario puede comprobar el estado
 o crear una copia manual desde el icono de base de datos de la cabecera.
 
-La restauración de una copia externa se realiza **solo en una base aislada**, nunca
-directamente en producción:
+La restauración de una copia externa se debe realizar **solo en una base aislada**.
+Créala y aplica primero `migrations/001_easypanel_postgres.sql` para que existan
+las tablas que restaura el script.
+El script exige confirmación explícita y rechaza `NODE_ENV=production`, pero no
+puede comprobar que la URL corresponda a una base aislada. Revisa el destino
+antes de ejecutarlo, ya que vacía las tablas de la base indicada. Para la red
+interna de Easypanel, usa `RESTORE_DATABASE_SSL=false`; con PostgreSQL que
+requiere TLS, omite esa variable.
 
 ```bash
-RESTORE_DATABASE_URL='postgresql://...base-aislada...'
+RESTORE_DATABASE_URL='postgresql://usuario:clave@host:5432/base-aislada' \
+RESTORE_DATABASE_SSL=false \
 RESTORE_CONFIRM=RESTORE_TO_ISOLATED_DATABASE \
 AWS_ENDPOINT_URL_S3=... AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... \
 AWS_REGION=... BACKUP_BUCKET=... BACKUP_ENCRYPTION_KEY=... \
-node scripts/restore-backup.mjs restaurant-dashboard/<archivo>.json.gz.enc
+node scripts/restore-backup.mjs restaurant-dashboard/backup.json.gz.enc
 ```
 
-Después verifica pedidos, menú y usuarios en la rama aislada. Para cualquier
+Después verifica pedidos, menú y usuarios en la base aislada. Para cualquier
 restauración real de producción, valida primero el punto de recuperación y
 coordina una ventana de mantenimiento: el script se niega a ejecutarse con
 `NODE_ENV=production`.
@@ -421,8 +445,8 @@ coordina una ventana de mantenimiento: el script se niega a ejecutarse con
 - El proyecto usa `app.get(/^\/(?!api\/).*/, ...)` en lugar de `app.get('*')` para compatibilidad con Express 5
 
 ### Puerto en uso
-- El servidor unificado usa el puerto configurado en `PORT` (default: 80)
-- En desarrollo usa el puerto que asigne Vite (usualmente 5173)
+- El servidor unificado usa el puerto configurado en `PORT` (por defecto, 80)
+- `npm run dev` inicia Vite en el puerto 3002 y envía `/api` al backend en el 8080
 
 ### Logs duplicados
 - React Query deduplica automáticamente las peticiones concurrentes
@@ -433,8 +457,8 @@ coordina una ventana de mantenimiento: el script se niega a ejecutarse con
 - El proyecto usa TypeScript para tipado seguro
 - Los componentes usan shadcn/ui para UI consistente
 - La API sigue formato RESTful con filtros server-side para pedidos y reservas
-- Las fechas se manejan con timezone local
-- El filtro de reservas maneja correctamente zonas horarias
+- Los pedidos programados se presentan en `Europe/Andorra`; el filtro `today` de la API usa UTC, `month` depende de la zona horaria del servidor y los rangos de analíticas usan la del navegador
+- Las reservas guardan fecha y hora locales sin conversión de zona horaria
 - El servidor Express sirve tanto API como frontend (SPA routing)
 - React Query gestiona el estado del servidor con hooks personalizados en `src/hooks/use-queries.ts`
 - Los cambios de menú, pedidos y reservas se consultan mediante la API propia y `src/hooks/use-queries.ts`
@@ -449,7 +473,3 @@ coordina una ventana de mantenimiento: el script se niega a ejecutarse con
 3. Commit cambios (`git commit -m 'Agregar nueva funcionalidad'`)
 4. Push al branch (`git push origin feature/nueva-funcionalidad`)
 5. Abrir Pull Request
-
-## 📄 Licencia
-
-MIT License - ver archivo LICENSE para detalles
