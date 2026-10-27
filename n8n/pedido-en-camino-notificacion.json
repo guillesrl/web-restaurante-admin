@@ -2,13 +2,16 @@
   {
     "id": "M3dEnCamino2026",
     "name": "Restaurante — Aviso de pedido en camino",
-    "active": false,
+    "active": true,
     "nodes": [
       {
         "parameters": {
           "rule": {
             "interval": [
-              { "field": "cronExpression", "expression": "* * * * *" }
+              {
+                "field": "cronExpression",
+                "expression": "* * * * *"
+              }
             ]
           }
         },
@@ -16,7 +19,10 @@
         "name": "Cada minuto",
         "type": "n8n-nodes-base.scheduleTrigger",
         "typeVersion": 1.2,
-        "position": [0, 0]
+        "position": [
+          0,
+          0
+        ]
       },
       {
         "parameters": {
@@ -28,9 +34,15 @@
         "name": "Reservar avisos en camino",
         "type": "n8n-nodes-base.postgres",
         "typeVersion": 2.6,
-        "position": [240, 0],
+        "position": [
+          240,
+          0
+        ],
         "credentials": {
-          "postgres": { "id": "GLFhlsFDl9vGbYAt", "name": "Neon_Resto" }
+          "postgres": {
+            "id": "3eenSJpG1dnKsMXF",
+            "name": "Restaurante Easypanel PostgreSQL"
+          }
         }
       },
       {
@@ -47,7 +59,11 @@
                 "id": "261bc71f-ec29-4a98-bf06-d8596a18d3a3",
                 "leftValue": "={{ String($json.id || '') }}",
                 "rightValue": "",
-                "operator": { "type": "string", "operation": "notEmpty", "singleValue": true }
+                "operator": {
+                  "type": "string",
+                  "operation": "notEmpty",
+                  "singleValue": true
+                }
               }
             ],
             "combinator": "and"
@@ -58,7 +74,10 @@
         "name": "Hay pedido para avisar",
         "type": "n8n-nodes-base.if",
         "typeVersion": 2.2,
-        "position": [480, 0]
+        "position": [
+          480,
+          0
+        ]
       },
       {
         "parameters": {
@@ -71,10 +90,22 @@
                 "type": "body",
                 "bodyParameters": {
                   "parameter": [
-                    { "text": "={{ $json.nombre || 'Cliente' }}", "type": "text" },
-                    { "text": "={{ String($json.id) }}", "type": "text" },
-                    { "text": "={{ $json.direccion || 'la dirección indicada' }}", "type": "text" },
-                    { "text": "={{ Number($json.total || 0).toFixed(2).replace('.', ',') }}", "type": "text" }
+                    {
+                      "text": "={{ $json.nombre || 'Cliente' }}",
+                      "type": "text"
+                    },
+                    {
+                      "text": "={{ String($json.id) }}",
+                      "type": "text"
+                    },
+                    {
+                      "text": "={{ $json.direccion || 'la dirección indicada' }}",
+                      "type": "text"
+                    },
+                    {
+                      "text": "={{ Number($json.total || 0).toFixed(2).replace('.', ',') }}",
+                      "type": "text"
+                    }
                   ]
                 }
               }
@@ -85,9 +116,15 @@
         "name": "Enviar plantilla pedido_en_camino",
         "type": "n8n-nodes-base.whatsApp",
         "typeVersion": 1,
-        "position": [720, 0],
+        "position": [
+          720,
+          0
+        ],
         "credentials": {
-          "whatsAppApi": { "id": "6yvvLq3vjXSei8jQ", "name": "WhatsApp account" }
+          "whatsAppApi": {
+            "id": "6yvvLq3vjXSei8jQ",
+            "name": "WhatsApp account"
+          }
         }
       },
       {
@@ -102,26 +139,67 @@
         "name": "Registrar aviso en camino",
         "type": "n8n-nodes-base.postgres",
         "typeVersion": 2.6,
-        "position": [980, 0],
+        "position": [
+          980,
+          0
+        ],
         "credentials": {
-          "postgres": { "id": "GLFhlsFDl9vGbYAt", "name": "Neon_Resto" }
+          "postgres": {
+            "id": "3eenSJpG1dnKsMXF",
+            "name": "Restaurante Easypanel PostgreSQL"
+          }
         }
       }
     ],
     "connections": {
       "Cada minuto": {
-        "main": [[{ "node": "Reservar avisos en camino", "type": "main", "index": 0 }]]
+        "main": [
+          [
+            {
+              "node": "Reservar avisos en camino",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
       },
       "Reservar avisos en camino": {
-        "main": [[{ "node": "Hay pedido para avisar", "type": "main", "index": 0 }]]
+        "main": [
+          [
+            {
+              "node": "Hay pedido para avisar",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
       },
       "Hay pedido para avisar": {
-        "main": [[{ "node": "Enviar plantilla pedido_en_camino", "type": "main", "index": 0 }], []]
+        "main": [
+          [
+            {
+              "node": "Enviar plantilla pedido_en_camino",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          []
+        ]
       },
       "Enviar plantilla pedido_en_camino": {
-        "main": [[{ "node": "Registrar aviso en camino", "type": "main", "index": 0 }]]
+        "main": [
+          [
+            {
+              "node": "Registrar aviso en camino",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
       }
     },
-    "settings": { "executionOrder": "v1" }
+    "settings": {
+      "executionOrder": "v1"
+    }
   }
 ]

@@ -340,15 +340,12 @@ solo después de que Meta acepte el envío marca
 antes del aviso, se anula el envío pendiente. Esta marca es independiente de
 las de los avisos de recogida y entrega.
 
-El archivo exportado figura como **inactivo**. Tras importarlo en n8n, hay que
-activarlo para que envíe avisos; el estado de la instancia en producción no se
-puede deducir del archivo del repositorio.
-
-Los dos archivos de `n8n/` conservan una referencia a la credencial heredada
-`Neon_Resto`. Al importarlos, vincula sus nodos PostgreSQL a la base dedicada
-`dashboard_restaurante` y revisa la configuración de WhatsApp antes de activar
-los flujos. La referencia del archivo no confirma a qué base se conecta una
-instancia de n8n ya desplegada.
+Los dos archivos de `n8n/` usan la credencial `Restaurante Easypanel PostgreSQL`
+y figuran como activos. Esa credencial apunta a la base dedicada
+`dashboard_restaurante` en el despliegue actual. Al importar los archivos en
+otra instancia, vincula los nodos PostgreSQL a una credencial propia y revisa
+la configuración de WhatsApp antes de activarlos; los identificadores de
+credenciales de n8n son específicos de cada instancia.
 
 ### Reservas
 - `GET /api/reservations?filter=today|month` - Obtener reservas con filtros server-side

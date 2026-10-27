@@ -5,6 +5,14 @@
     "active": true,
     "nodes": [
       {
+        "id": "a8ec67e6-9d4e-4aad-9101-6e6174d62f62",
+        "name": "Cada minuto",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
         "parameters": {
           "rule": {
             "interval": [
@@ -14,17 +22,17 @@
               }
             ]
           }
-        },
-        "id": "a8ec67e6-9d4e-4aad-9101-6e6174d62f62",
-        "name": "Cada minuto",
-        "type": "n8n-nodes-base.scheduleTrigger",
-        "typeVersion": 1.2,
-        "position": [
-          0,
-          0
-        ]
+        }
       },
       {
+        "id": "77d31ef1-5176-47ea-a6f7-3e0d6e97f52f",
+        "name": "Hay pedido para avisar",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          480,
+          0
+        ],
         "parameters": {
           "conditions": {
             "options": {
@@ -48,22 +56,9 @@
             "combinator": "and"
           },
           "options": {}
-        },
-        "id": "77d31ef1-5176-47ea-a6f7-3e0d6e97f52f",
-        "name": "Hay pedido para avisar",
-        "type": "n8n-nodes-base.if",
-        "typeVersion": 2.2,
-        "position": [
-          480,
-          0
-        ]
+        }
       },
       {
-        "parameters": {
-          "operation": "executeQuery",
-          "query": "WITH claimable AS (\n  SELECT id\n  FROM orders\n  WHERE status = 'ready'\n    AND fulfillment_type = 'pickup'\n    AND COALESCE(telefono, '') <> ''\n    AND delivery_notification_due_at <= NOW()\n    AND delivery_notification_sent_at IS NULL\n    AND (delivery_notification_claimed_at IS NULL OR delivery_notification_claimed_at < NOW() - INTERVAL '10 minutes')\n  ORDER BY delivery_notification_due_at ASC\n  LIMIT 20\n  FOR UPDATE SKIP LOCKED\n)\nUPDATE orders AS o\nSET delivery_notification_claimed_at = NOW()\nFROM claimable\nWHERE o.id = claimable.id\nRETURNING o.id, o.nombre, o.telefono, o.direccion, o.total",
-          "options": {}
-        },
         "id": "d6e5e6cf-65cb-48ed-85f2-c20d1a27db64",
         "name": "Reservar avisos vencidos",
         "type": "n8n-nodes-base.postgres",
@@ -72,14 +67,27 @@
           240,
           0
         ],
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH claimable AS (\n  SELECT id\n  FROM orders\n  WHERE status = 'ready'\n    AND COALESCE(telefono, '') <> ''\n    AND delivery_notification_due_at <= NOW()\n    AND delivery_notification_sent_at IS NULL\n    AND (delivery_notification_claimed_at IS NULL OR delivery_notification_claimed_at < NOW() - INTERVAL '10 minutes')\n  ORDER BY delivery_notification_due_at ASC\n  LIMIT 20\n  FOR UPDATE SKIP LOCKED\n)\nUPDATE orders AS o\nSET delivery_notification_claimed_at = NOW()\nFROM claimable\nWHERE o.id = claimable.id\nRETURNING o.id, o.nombre, o.telefono, o.direccion, o.total",
+          "options": {}
+        },
         "credentials": {
           "postgres": {
-            "id": "GLFhlsFDl9vGbYAt",
-            "name": "Neon_Resto"
+            "id": "3eenSJpG1dnKsMXF",
+            "name": "Restaurante Easypanel PostgreSQL"
           }
         }
       },
       {
+        "id": "d17de2d8-6c86-47ae-8cbb-e5dd8d777bd8",
+        "name": "Enviar plantilla pedido_listo_recogida",
+        "type": "n8n-nodes-base.whatsApp",
+        "typeVersion": 1,
+        "position": [
+          720,
+          0
+        ],
         "parameters": {
           "phoneNumberId": "1345205168674012",
           "recipientPhoneNumber": "={{ String($json.telefono || '').replace(/\\D/g, '') }}",
@@ -90,46 +98,37 @@
                 "bodyParameters": {
                   "parameter": [
                     {
-                      "text": "={{ $json.nombre || 'Cliente' }}"
+                      "text": "={{ $json.nombre || 'Cliente' }}",
+                      "type": "text"
                     },
                     {
-                      "text": "={{ String($json.id) }}"
+                      "text": "={{ String($json.id) }}",
+                      "type": "text"
                     },
                     {
-                      "text": "={{ $json.direccion || 'el local' }}"
+                      "text": "={{ $json.direccion || 'el local' }}",
+                      "type": "text"
                     },
                     {
-                      "text": "={{ Number($json.total || 0).toFixed(2).replace('.', ',') }}"
+                      "text": "={{ Number($json.total || 0).toFixed(2).replace('.', ',') }}",
+                      "type": "text"
                     }
                   ]
-                }
+                },
+                "type": "body"
               }
             ]
           }
         },
-        "id": "d17de2d8-6c86-47ae-8cbb-e5dd8d777bd8",
-        "name": "Enviar plantilla pedido_listo_recogida",
-        "type": "n8n-nodes-base.whatsApp",
-        "typeVersion": 1,
-        "position": [
-          720,
-          0
-        ],
         "credentials": {
           "whatsAppApi": {
             "id": "6yvvLq3vjXSei8jQ",
             "name": "WhatsApp account"
           }
-        }
+        },
+        "webhookId": "5ae62d61-b72c-4cc3-9c97-a50039641575"
       },
       {
-        "parameters": {
-          "operation": "executeQuery",
-          "query": "UPDATE orders\nSET delivery_notification_sent_at = NOW(),\n    delivery_notification_claimed_at = NULL\nWHERE id = $1\n  AND delivery_notification_sent_at IS NULL\nRETURNING id",
-          "options": {
-            "queryReplacement": "={{ [$('Reservar avisos vencidos').item.json.id] }}"
-          }
-        },
         "id": "25928458-820f-4e05-ab2d-c50c4d05f3ee",
         "name": "Registrar aviso enviado",
         "type": "n8n-nodes-base.postgres",
@@ -138,10 +137,17 @@
           980,
           0
         ],
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "UPDATE orders\nSET delivery_notification_sent_at = NOW(),\n    delivery_notification_claimed_at = NULL\nWHERE id = $1\n  AND delivery_notification_sent_at IS NULL\nRETURNING id",
+          "options": {
+            "queryReplacement": "={{ [$('Reservar avisos vencidos').item.json.id] }}"
+          }
+        },
         "credentials": {
           "postgres": {
-            "id": "GLFhlsFDl9vGbYAt",
-            "name": "Neon_Resto"
+            "id": "3eenSJpG1dnKsMXF",
+            "name": "Restaurante Easypanel PostgreSQL"
           }
         }
       }
