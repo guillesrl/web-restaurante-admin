@@ -97,7 +97,8 @@ TELEGRAM_CHAT_ID=
 AGENT_ORDER_API_KEY=
 
 # Aviso event-driven a n8n cuando un repartidor marca un pedido como entregado
-N8N_DELIVERY_WEBHOOK_URL=https://n8n.guillers.es/webhook/restaurant-order-delivered
+# Sustituye el dominio y la ruta por los de tu instancia y workflow de n8n
+N8N_DELIVERY_WEBHOOK_URL=https://n8n.example.com/webhook/your-workflow-path
 N8N_DELIVERY_WEBHOOK_TOKEN=
 
 # Copias de seguridad externas (opcionales, activan la copia diaria cifrada)
@@ -203,7 +204,8 @@ TELEGRAM_CHAT_ID=
 AGENT_ORDER_API_KEY=
 
 # Aviso event-driven a n8n cuando un repartidor marca un pedido como entregado
-N8N_DELIVERY_WEBHOOK_URL=https://n8n.guillers.es/webhook/restaurant-order-delivered
+# Sustituye el dominio y la ruta por los de tu instancia y workflow de n8n
+N8N_DELIVERY_WEBHOOK_URL=https://n8n.example.com/webhook/your-workflow-path
 N8N_DELIVERY_WEBHOOK_TOKEN=
 
 # Opcional: forzar versión de Node.js
